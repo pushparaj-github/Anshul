@@ -13,56 +13,73 @@ export GITLAB_USER="your-gitlab-username"
 export GITLAB_TOKEN="your-gitlab-access-token"
 **********
 ****migrate_packages.sh
-
-
 #!/bin/bash
 
-# Set directories
+# Configuration Variables
+NEXUS_URL="http://your-nexus-server:8081/repository/your-nuget-repo"
+GITLAB_REGISTRY_URL="https://gitlab.com/api/v4/projects/YOUR_PROJECT_ID/packages/nuget"
 DOWNLOAD_DIR="./nexus-packages"
-LOG_FILE="uploaded_packages.log"
 MAX_UPLOADS=5  # Stop after 5 uploads for testing
+GITLAB_TOKEN="your-gitlab-token"
 
 mkdir -p "$DOWNLOAD_DIR"
-
-# Fetch package list from Nexus
-echo "Fetching package list from Nexus..."
-curl -u "$NEXUS_USER:$NEXUS_PASS" -X GET "$NEXUS_URL/service/rest/v1/assets?repository=$NEXUS_REPO" | jq -r '.items[].downloadUrl' > package_list.txt
-
-# Download all packages
-echo "Downloading packages from Nexus..."
-wget -i package_list.txt -P "$DOWNLOAD_DIR"
-
 UPLOAD_COUNT=0
-echo "Uploading up to $MAX_UPLOADS packages to GitLab NuGet Registry..."
 
-# Find all .nupkg files inside subdirectories
-find "$DOWNLOAD_DIR" -type f -name "*.nupkg" | while read package; do
-    # Extract Package Name and Version from the path structure
-    PACKAGE_PATH=$(dirname "$package")
-    PACKAGE_NAME=$(basename "$(dirname "$PACKAGE_PATH")")  # Gets the PACKAGE_NAME
-    PACKAGE_VERSION=$(basename "$PACKAGE_PATH")  # Gets VERSION_1.1
-    
-    echo "Processing package: $PACKAGE_NAME - Version: $PACKAGE_VERSION"
+# Function for timestamped logging
+log_message() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1"
+}
 
-    # Upload to GitLab NuGet registry
-    curl --header "JOB-TOKEN: $GITLAB_TOKEN" --upload-file "$package" \
-         "$GITLAB_REGISTRY_URL/api/v4/projects/$GITLAB_PROJECT_ID/packages/nuget/v3/index.json"
+log_message "Fetching package list from Nexus manually..."
 
-    echo "Uploaded: $PACKAGE_NAME - Version: $PACKAGE_VERSION" >> "$LOG_FILE"
+# Step 1: Get package names
+curl -s "$NEXUS_URL/Packages()" | grep -oP '(?<=<id>).*?(?=</id>)' | sort -u > package_names.txt
 
-    # Remove uploaded package to save space
-    rm -f "$package"
+while read PACKAGE_NAME; do
+    log_message "Processing package: $PACKAGE_NAME"
 
-    # Stop after 5 uploads for testing
-    ((UPLOAD_COUNT++))
-    if [[ $UPLOAD_COUNT -ge $MAX_UPLOADS ]]; then
-        echo "Test limit reached: Uploaded $MAX_UPLOADS packages. Stopping."
-        break
-    fi
-done
+    # Step 2: Get package versions
+    curl -s "$NEXUS_URL/FindPackagesById()?id=$PACKAGE_NAME" | grep -oP '(?<=<version>).*?(?=</version>)' | sort -u > package_versions.txt
 
-echo "Migration completed! Log saved in $LOG_FILE."
+    while read VERSION; do
+        log_message "  - Found version: $VERSION"
 
+        # Construct the package filename
+        PACKAGE_FILE="${PACKAGE_NAME}.${VERSION}.nupkg"
+        DOWNLOAD_URL="$NEXUS_URL/$PACKAGE_NAME/$VERSION/$PACKAGE_FILE"
+
+        # Check if package already exists in GitLab
+        PACKAGE_EXISTS=$(curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+            "$GITLAB_REGISTRY_URL/$PACKAGE_NAME/$VERSION.json" | grep -c '"version"')
+
+        if [[ "$PACKAGE_EXISTS" -gt 0 ]]; then
+            log_message "Skipping already existing package: $PACKAGE_NAME - Version: $VERSION"
+            continue
+        fi
+
+        # Download the package
+        wget -q --show-progress -P "$DOWNLOAD_DIR" "$DOWNLOAD_URL"
+
+        # Step 3: Upload to GitLab NuGet Registry
+        log_message "Uploading $PACKAGE_FILE to GitLab..."
+        curl --header "JOB-TOKEN: $GITLAB_TOKEN" --upload-file "$DOWNLOAD_DIR/$PACKAGE_FILE" \
+             "$GITLAB_REGISTRY_URL/v3/index.json"
+
+        log_message "Uploaded: $PACKAGE_NAME - Version: $VERSION"
+
+        # Remove uploaded package to save space
+        rm -f "$DOWNLOAD_DIR/$PACKAGE_FILE"
+
+        # Stop after 5 uploads for testing
+        ((UPLOAD_COUNT++))
+        if [[ $UPLOAD_COUNT -ge $MAX_UPLOADS ]]; then
+            log_message "Test limit reached: Uploaded $MAX_UPLOADS packages. Stopping."
+            exit 0
+        fi
+    done < package_versions.txt
+done < package_names.txt
+
+log_message "Migration completed!"
 
 ********
 chmod +x migrate_packages.sh
