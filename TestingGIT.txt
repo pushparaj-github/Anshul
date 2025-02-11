@@ -1,1 +1,65 @@
-Hi Anshul - This is first commit
+sudo apt update && sudo apt install jq wget curl -y
+
+
+*******
+export NEXUS_URL="http://nexus.example.com"
+export NEXUS_REPO="your-nexus-repo"
+export NEXUS_USER="your-nexus-username"
+export NEXUS_PASS="your-nexus-password"
+
+export GITLAB_PROJECT_ID="123456"
+export GITLAB_REGISTRY_URL="https://gitlab.com/api/v4/projects/${GITLAB_PROJECT_ID}/packages/npm/"
+export GITLAB_USER="your-gitlab-username"
+export GITLAB_TOKEN="your-gitlab-access-token"
+**********
+****migrate_packages.sh
+
+
+#!/bin/bash
+
+# Set directories
+DOWNLOAD_DIR="./nexus-packages"
+LOG_FILE="uploaded_packages.log"
+
+# Create directories if not exist
+mkdir -p "$DOWNLOAD_DIR"
+
+# Step 1: Fetch package list from Nexus
+echo "Fetching package list from Nexus..."
+curl -u "$NEXUS_USER:$NEXUS_PASS" -X GET "$NEXUS_URL/service/rest/v1/assets?repository=$NEXUS_REPO" | jq -r '.items[].downloadUrl' > package_list.txt
+
+# Step 2: Download all packages
+echo "Downloading packages from Nexus..."
+wget -i package_list.txt -P "$DOWNLOAD_DIR"
+
+# Step 3: Authenticate with GitLab
+echo "Logging into GitLab Package Registry..."
+echo "//gitlab.com/api/v4/projects/$GITLAB_PROJECT_ID/packages/npm/:_authToken=$GITLAB_TOKEN" > ~/.npmrc
+
+# Step 4: Upload each package and log it
+echo "Uploading packages to GitLab..."
+for package in "$DOWNLOAD_DIR"/*; do
+    if [[ $package == *.tgz ]]; then
+        npm publish "$package" --registry="$GITLAB_REGISTRY_URL"
+        echo "Uploaded: $(basename "$package")" >> "$LOG_FILE"
+    elif [[ $package == *.jar ]]; then
+        mvn deploy:deploy-file \
+            -Dfile="$package" \
+            -DrepositoryId=gitlab-maven \
+            -Durl="https://gitlab.com/api/v4/projects/$GITLAB_PROJECT_ID/packages/maven/"
+        echo "Uploaded: $(basename "$package")" >> "$LOG_FILE"
+    fi
+    
+    # Remove uploaded package to save space
+    rm -f "$package"
+done
+
+# Clean up
+rm -f package_list.txt
+echo "Migration completed! Uploaded package list saved in $LOG_FILE."
+
+********
+chmod +x migrate_packages.sh
+*******
+./migrate_packages.sh
+****
