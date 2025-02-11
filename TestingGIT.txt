@@ -20,43 +20,49 @@ export GITLAB_TOKEN="your-gitlab-access-token"
 # Set directories
 DOWNLOAD_DIR="./nexus-packages"
 LOG_FILE="uploaded_packages.log"
+MAX_UPLOADS=5  # Stop after 5 uploads for testing
 
-# Create directories if not exist
 mkdir -p "$DOWNLOAD_DIR"
 
-# Step 1: Fetch package list from Nexus
+# Fetch package list from Nexus
 echo "Fetching package list from Nexus..."
 curl -u "$NEXUS_USER:$NEXUS_PASS" -X GET "$NEXUS_URL/service/rest/v1/assets?repository=$NEXUS_REPO" | jq -r '.items[].downloadUrl' > package_list.txt
 
-# Step 2: Download all packages
+# Download all packages
 echo "Downloading packages from Nexus..."
 wget -i package_list.txt -P "$DOWNLOAD_DIR"
 
-# Step 3: Authenticate with GitLab
-echo "Logging into GitLab Package Registry..."
-echo "//gitlab.com/api/v4/projects/$GITLAB_PROJECT_ID/packages/npm/:_authToken=$GITLAB_TOKEN" > ~/.npmrc
+UPLOAD_COUNT=0
+echo "Uploading up to $MAX_UPLOADS packages to GitLab NuGet Registry..."
 
-# Step 4: Upload each package and log it
-echo "Uploading packages to GitLab..."
-for package in "$DOWNLOAD_DIR"/*; do
-    if [[ $package == *.tgz ]]; then
-        npm publish "$package" --registry="$GITLAB_REGISTRY_URL"
-        echo "Uploaded: $(basename "$package")" >> "$LOG_FILE"
-    elif [[ $package == *.jar ]]; then
-        mvn deploy:deploy-file \
-            -Dfile="$package" \
-            -DrepositoryId=gitlab-maven \
-            -Durl="https://gitlab.com/api/v4/projects/$GITLAB_PROJECT_ID/packages/maven/"
-        echo "Uploaded: $(basename "$package")" >> "$LOG_FILE"
-    fi
+# Find all .nupkg files inside subdirectories
+find "$DOWNLOAD_DIR" -type f -name "*.nupkg" | while read package; do
+    # Extract Package Name and Version from the path structure
+    PACKAGE_PATH=$(dirname "$package")
+    PACKAGE_NAME=$(basename "$(dirname "$PACKAGE_PATH")")  # Gets the PACKAGE_NAME
+    PACKAGE_VERSION=$(basename "$PACKAGE_PATH")  # Gets VERSION_1.1
     
+    echo "Processing package: $PACKAGE_NAME - Version: $PACKAGE_VERSION"
+
+    # Upload to GitLab NuGet registry
+    curl --header "JOB-TOKEN: $GITLAB_TOKEN" --upload-file "$package" \
+         "$GITLAB_REGISTRY_URL/api/v4/projects/$GITLAB_PROJECT_ID/packages/nuget/v3/index.json"
+
+    echo "Uploaded: $PACKAGE_NAME - Version: $PACKAGE_VERSION" >> "$LOG_FILE"
+
     # Remove uploaded package to save space
     rm -f "$package"
+
+    # Stop after 5 uploads for testing
+    ((UPLOAD_COUNT++))
+    if [[ $UPLOAD_COUNT -ge $MAX_UPLOADS ]]; then
+        echo "Test limit reached: Uploaded $MAX_UPLOADS packages. Stopping."
+        break
+    fi
 done
 
-# Clean up
-rm -f package_list.txt
-echo "Migration completed! Uploaded package list saved in $LOG_FILE."
+echo "Migration completed! Log saved in $LOG_FILE."
+
 
 ********
 chmod +x migrate_packages.sh
