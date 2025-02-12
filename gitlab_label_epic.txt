@@ -1,0 +1,38 @@
+#!/bin/bash
+
+# ✅ Configure GitLab Access
+GITLAB_API_URL="https://gitlab.com/api/v4"
+PRIVATE_TOKEN="YOUR_GITLAB_ACCESS_TOKEN"  # 🔹 Replace with your actual token
+PROJECT_ID="YOUR_PROJECT_ID"              # 🔹 Replace with your project ID
+EPIC_ID="YOUR_EPIC_ID"                    # 🔹 Replace with the Epic ID you want to assign
+LABEL="Your-Label"                         # 🔹 Replace with the new label
+
+# ✅ Fetch All Issues Assigned to You (Open & Closed)
+echo "Fetching issues assigned to you..."
+issues=$(curl -s --header "PRIVATE-TOKEN: $PRIVATE_TOKEN" "$GITLAB_API_URL/projects/$PROJECT_ID/issues?state=all&assignee_id=me" | jq -r '.[].iid')
+
+# ✅ Check if there are issues assigned
+if [[ -z "$issues" ]]; then
+    echo "No issues assigned to you."
+    exit 0
+fi
+
+# ✅ Loop through each issue and update Epic & Label
+for issue_id in $issues; do
+    echo "Updating issue #$issue_id..."
+    
+    # Update the Epic & Label
+    response=$(curl -s --request PUT --header "PRIVATE-TOKEN: $PRIVATE_TOKEN" \
+        --header "Content-Type: application/json" \
+        --data "{\"labels\": \"$LABEL\", \"epic_id\": $EPIC_ID}" \
+        "$GITLAB_API_URL/projects/$PROJECT_ID/issues/$issue_id")
+
+    # ✅ Check if the update was successful
+    if echo "$response" | grep -q '"id":'; then
+        echo "✔ Issue #$issue_id updated successfully."
+    else
+        echo "❌ Failed to update issue #$issue_id. Response: $response"
+    fi
+done
+
+echo "✅ All issues processed!"
