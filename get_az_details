@@ -1,8 +1,8 @@
 # Define output file
 $OutputFile = "AzureVMDetails.csv"
 
-# Define resource groups (Modify this list as needed)
-$ResourceGroups = @("RG1", "RG2", "RG3")  # <-- Replace with your actual resource group names
+# Define Resource Groups (Modify this list as needed)
+$ResourceGroups = @("RG1", "RG2", "RG3")  # <-- Replace with your actual resource groups
 
 # Login to Azure (if not logged in)
 Connect-AzAccount
@@ -12,21 +12,15 @@ $VMData = @()
 
 # Loop through each resource group
 foreach ($ResourceGroup in $ResourceGroups) {
-    # Get Subscription ID associated with the Resource Group
-    $RGDetails = Get-AzResourceGroup -Name $ResourceGroup -ErrorAction SilentlyContinue
-    if (-not $RGDetails) {
-        Write-Host "Resource Group '$ResourceGroup' not found. Skipping..."
-        continue
-    }
-    
-    $SubscriptionID = $RGDetails.SubscriptionId
-    Write-Host "Processing Resource Group: $ResourceGroup in Subscription: $SubscriptionID"
-
-    # Set Azure context to the correct subscription
-    Set-AzContext -SubscriptionId $SubscriptionID
+    Write-Host "Processing Resource Group: $ResourceGroup"
 
     # Get all VMs in the resource group
     $VMs = Get-AzVM -ResourceGroupName $ResourceGroup -ErrorAction SilentlyContinue
+
+    if (-not $VMs) {
+        Write-Host "No VMs found in Resource Group: $ResourceGroup"
+        continue
+    }
 
     foreach ($VM in $VMs) {
         $VMName = $VM.Name
@@ -69,7 +63,6 @@ foreach ($ResourceGroup in $ResourceGroups) {
         $VMData += [PSCustomObject]@{
             "VM Name"           = $VMName
             "Resource Group"    = $ResourceGroup
-            "Subscription ID"   = $SubscriptionID
             "Size"              = $VMSize
             "vCPUs"             = $vCPUs
             "Memory (GB)"       = $MemoryGB
