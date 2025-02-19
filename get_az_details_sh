@@ -1,0 +1,54 @@
+RESOURCE_GROUPS=("RG1" "RG2" "RG3")  # Replace with your actual resource groups
+OUTPUT_FILE="AzureVMDetails.csv"
+
+# Create CSV Header
+echo "VM Name, Resource Group, Subscription ID, Size, vCPUs, Memory(GB), CPU Utilization (%), OS Disk, Data Disks" > $OUTPUT_FILE
+
+# Loop through each Resource Group
+for RG in "${RESOURCE_GROUPS[@]}"; do
+    echo "Processing Resource Group: $RG..."
+    
+    # Get Subscription ID for the Resource Group
+    SUBSCRIPTION_ID=$(az group show --name "$RG" --query "id" --output tsv | cut -d'/' -f3)
+
+    if [ -z "$SUBSCRIPTION_ID" ]; then
+        echo "ERROR: Resource Group $RG not found or no access. Skipping..."
+        continue
+    fi
+
+    # Get VM Details
+    VMS=$(az vm list --resource-group "$RG" --query "[].{name:name, size:hardwareProfile.vmSize, id:id}" --output json)
+
+    if [ "$VMS" == "[]" ]; then
+        echo "No VMs found in $RG"
+        continue
+    fi
+
+    echo "$VMS" | jq -c '.[]' | while IFS= read -r vm; do
+        VM_NAME=$(echo "$vm" | jq -r '.name')
+        VM_SIZE=$(echo "$vm" | jq -r '.size')
+        VM_ID=$(echo "$vm" | jq -r '.id')
+
+        # Get CPU and Memory Information
+        SIZE_INFO=$(az vm list-sizes --location eastus --query "[?name=='$VM_SIZE'].{vCPUs:numberOfCores, Memory:memoryInMB}" --output json)
+        VCPUS=$(echo "$SIZE_INFO" | jq -r '.[0].vCPUs')
+        MEMORY_MB=$(echo "$SIZE_INFO" | jq -r '.[0].Memory')
+        MEMORY_GB=$((MEMORY_MB / 1024))
+
+        # Get CPU Utilization
+        CPU_UTIL=$(az monitor metrics list --resource "$VM_ID" --metric "Percentage CPU" --interval PT1M --aggregation Average --query "value[].timeseries[].data[-1].average" --output tsv)
+        if [ -z "$CPU_UTIL" ]; then CPU_UTIL="N/A"; fi
+
+        # Get OS Disk
+        OS_DISK=$(az vm show --name "$VM_NAME" --resource-group "$RG" --query "storageProfile.osDisk.name" --output tsv)
+
+        # Get Data Disks
+        DATA_DISKS=$(az vm show --name "$VM_NAME" --resource-group "$RG" --query "storageProfile.dataDisks[].name" --output tsv | tr '\n' ',' | sed 's/,$//')
+        if [ -z "$DATA_DISKS" ]; then DATA_DISKS="None"; fi
+
+        # Append to CSV
+        echo "$VM_NAME, $RG, $SUBSCRIPTION_ID, $VM_SIZE, $VCPUS, $MEMORY_GB, $CPU_UTIL, $OS_DISK, $DATA_DISKS" >> $OUTPUT_FILE
+    done
+done
+
+echo "Export completed! Data saved in: $OUTPUT_FILE"
