@@ -1,54 +1,71 @@
-RESOURCE_GROUPS=("RG1" "RG2" "RG3")  # Replace with your actual resource groups
+#!/bin/bash
+
+# Define the output CSV file
 OUTPUT_FILE="AzureVMDetails.csv"
 
-# Create CSV Header
-echo "VM Name, Resource Group, Subscription ID, Size, vCPUs, Memory(GB), CPU Utilization (%), OS Disk, Data Disks" > $OUTPUT_FILE
+# Define Resource Groups (Replace with your actual ones)
+RESOURCE_GROUPS=("RG1" "RG2" "RG3")
 
-# Loop through each Resource Group
+# Create CSV header
+echo "VM Name,Resource Group,Subscription ID,Size,vCPUs,Memory (GB),CPU Utilization (%),OS Disk,Data Disks" > $OUTPUT_FILE
+
+# Login to Azure (Uncomment if needed)
+# az login
+
+# Loop through each resource group
 for RG in "${RESOURCE_GROUPS[@]}"; do
     echo "Processing Resource Group: $RG..."
-    
+
     # Get Subscription ID for the Resource Group
     SUBSCRIPTION_ID=$(az group show --name "$RG" --query "id" --output tsv | cut -d'/' -f3)
 
+    # Check if the resource group exists
     if [ -z "$SUBSCRIPTION_ID" ]; then
-        echo "ERROR: Resource Group $RG not found or no access. Skipping..."
+        echo "ERROR: Resource Group '$RG' not found or no access. Skipping..."
         continue
     fi
 
-    # Get VM Details
-    VMS=$(az vm list --resource-group "$RG" --query "[].{name:name, size:hardwareProfile.vmSize, id:id}" --output json)
+    # Get all VMs in the resource group
+    VMS=$(az vm list --resource-group "$RG" --query "[].{name:name, size:hardwareProfile.vmSize, id:id, location:location}" --output tsv)
 
-    if [ "$VMS" == "[]" ]; then
-        echo "No VMs found in $RG"
+    # Check if any VMs exist
+    if [ -z "$VMS" ]; then
+        echo "No VMs found in Resource Group: $RG"
         continue
     fi
 
-    echo "$VMS" | jq -c '.[]' | while IFS= read -r vm; do
-        VM_NAME=$(echo "$vm" | jq -r '.name')
-        VM_SIZE=$(echo "$vm" | jq -r '.size')
-        VM_ID=$(echo "$vm" | jq -r '.id')
+    # Process each VM
+    while IFS=$'\t' read -r VM_NAME VM_SIZE VM_ID VM_LOCATION; do
+        echo "Fetching details for VM: $VM_NAME in $RG..."
 
-        # Get CPU and Memory Information
-        SIZE_INFO=$(az vm list-sizes --location eastus --query "[?name=='$VM_SIZE'].{vCPUs:numberOfCores, Memory:memoryInMB}" --output json)
-        VCPUS=$(echo "$SIZE_INFO" | jq -r '.[0].vCPUs')
-        MEMORY_MB=$(echo "$SIZE_INFO" | jq -r '.[0].Memory')
-        MEMORY_GB=$((MEMORY_MB / 1024))
+        # Get vCPU & Memory Info
+        SIZE_INFO=$(az vm list-sizes --location "$VM_LOCATION" --query "[?name=='$VM_SIZE'].{vCPUs:numberOfCores, Memory:memoryInMB}" --output tsv)
+        
+        if [ -n "$SIZE_INFO" ]; then
+            VCPUS=$(echo "$SIZE_INFO" | awk '{print $1}')
+            MEMORY_MB=$(echo "$SIZE_INFO" | awk '{print $2}')
+            MEMORY_GB=$(awk "BEGIN {print $MEMORY_MB / 1024}")
+        else
+            VCPUS="N/A"
+            MEMORY_GB="N/A"
+        fi
 
-        # Get CPU Utilization
+        # Get CPU Utilization (Last 1 Hour Average)
         CPU_UTIL=$(az monitor metrics list --resource "$VM_ID" --metric "Percentage CPU" --interval PT1M --aggregation Average --query "value[].timeseries[].data[-1].average" --output tsv)
         if [ -z "$CPU_UTIL" ]; then CPU_UTIL="N/A"; fi
 
-        # Get OS Disk
+        # Get OS Disk Name
         OS_DISK=$(az vm show --name "$VM_NAME" --resource-group "$RG" --query "storageProfile.osDisk.name" --output tsv)
 
-        # Get Data Disks
+        # Get Data Disks (comma-separated)
         DATA_DISKS=$(az vm show --name "$VM_NAME" --resource-group "$RG" --query "storageProfile.dataDisks[].name" --output tsv | tr '\n' ',' | sed 's/,$//')
         if [ -z "$DATA_DISKS" ]; then DATA_DISKS="None"; fi
 
-        # Append to CSV
-        echo "$VM_NAME, $RG, $SUBSCRIPTION_ID, $VM_SIZE, $VCPUS, $MEMORY_GB, $CPU_UTIL, $OS_DISK, $DATA_DISKS" >> $OUTPUT_FILE
-    done
+        # Append the details to CSV
+        echo "$VM_NAME,$RG,$SUBSCRIPTION_ID,$VM_SIZE,$VCPUS,$MEMORY_GB,$CPU_UTIL,$OS_DISK,$DATA_DISKS" >> $OUTPUT_FILE
+
+    done <<< "$VMS"
+
 done
 
-echo "Export completed! Data saved in: $OUTPUT_FILE"
+echo "✅ Export completed! Data saved in: $OUTPUT_FILE"
