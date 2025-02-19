@@ -1,10 +1,10 @@
 # Define output file
 $OutputFile = "AzureVMDetails.csv"
 
-# Define Resource Groups (Modify this list as needed)
-$ResourceGroups = @("RG1", "RG2", "RG3")  # <-- Replace with your actual resource groups
+# Define Resource Groups (Modify this list)
+$ResourceGroups = @("RG1", "RG2", "RG3")  # <-- Replace with actual resource groups
 
-# Login to Azure (if not logged in)
+# Login to Azure
 Connect-AzAccount
 
 # Initialize an array to store VM details
@@ -12,7 +12,31 @@ $VMData = @()
 
 # Loop through each resource group
 foreach ($ResourceGroup in $ResourceGroups) {
-    Write-Host "Processing Resource Group: $ResourceGroup"
+    Write-Host "Checking Resource Group: $ResourceGroup..."
+
+    # Get Subscription ID for the Resource Group
+    $ResourceGroupDetails = Get-AzResourceGroup -Name $ResourceGroup -ErrorAction SilentlyContinue
+
+    if (-not $ResourceGroupDetails) {
+        Write-Host "ERROR: Resource Group '$ResourceGroup' not found. Skipping..."
+        continue
+    }
+
+    $SubscriptionId = $ResourceGroupDetails.SubscriptionId
+
+    # Check if we have access to the subscription before switching
+    $AccessibleSubscriptions = Get-AzSubscription | Select-Object -ExpandProperty SubscriptionId
+
+    if ($SubscriptionId -notin $AccessibleSubscriptions) {
+        Write-Host "ERROR: No access to Subscription '$SubscriptionId'. Skipping Resource Group '$ResourceGroup'..."
+        continue
+    }
+
+    # Set Subscription Context (if different from current)
+    if ($SubscriptionId -ne (Get-AzContext).Subscription.Id) {
+        Write-Host "Switching to Subscription: $SubscriptionId"
+        Set-AzContext -SubscriptionId $SubscriptionId | Out-Null
+    }
 
     # Get all VMs in the resource group
     $VMs = Get-AzVM -ResourceGroupName $ResourceGroup -ErrorAction SilentlyContinue
@@ -32,7 +56,7 @@ foreach ($ResourceGroup in $ResourceGroups) {
         $MemoryGB = [math]::Round($VMSizeDetails.MemoryInMB / 1024, 2)
 
         # Get CPU Utilization (Last 1 Hour Average)
-        $CPUUtilization = (Get-AzMetric -ResourceId $VM.Id -MetricName "Percentage CPU" -TimeGrain 00:01:00 -AggregationType Average -WarningAction SilentlyContinue).Data.Average
+        $CPUUtilization = (Get-AzMetric -ResourceId $VM.Id -MetricName "Percentage CPU" -TimeGrain 00:01:00 -AggregationType Average -ErrorAction SilentlyContinue).Data.Average
         if (-not $CPUUtilization) { $CPUUtilization = "N/A" }
 
         # Get OS Disk Name
@@ -42,35 +66,17 @@ foreach ($ResourceGroup in $ResourceGroups) {
         $DataDisks = $VM.StorageProfile.DataDisks | Select-Object -ExpandProperty Name -ErrorAction SilentlyContinue
         if ($DataDisks) { $DataDisks = $DataDisks -join ", " } else { $DataDisks = "None" }
 
-        # Get Disk Space (Total and Free) using RunCommand
-        if ($VM.OsProfile.WindowsConfiguration) {
-            # Windows VM Disk Info
-            $DiskInfo = Invoke-AzVMRunCommand -ResourceGroupName $ResourceGroup -VMName $VMName -CommandId "RunPowerShellScript" -ScriptString "Get-PSDrive -PSProvider FileSystem | Select-Object Name,Used,Free,DisplayRoot" -ErrorAction SilentlyContinue
-            $DiskDetails = $DiskInfo.Value[0].Message | ConvertFrom-Csv
-        } else {
-            # Linux VM Disk Info
-            $DiskInfo = Invoke-AzVMRunCommand -ResourceGroupName $ResourceGroup -VMName $VMName -CommandId "RunShellScript" -ScriptString "df -h --output=source,size,used,avail,pcent,target | tail -n +2" -ErrorAction SilentlyContinue
-            $DiskDetails = $DiskInfo.Value[0].Message -split "`n" | ForEach-Object {
-                ($_ -split "\s+") | Select-Object @{Name="Disk"; Expression={$_[0]}}, @{Name="Total"; Expression={$_[1]}}, @{Name="Used"; Expression={$_[2]}}, @{Name="Free"; Expression={$_[3]}}, @{Name="Mounted"; Expression={$_[5]}}
-            }
-        }
-
-        # Get total and free disk space (sum of all disks)
-        $TotalDiskSpace = ($DiskDetails.Total -as [double[]] | Measure-Object -Sum).Sum
-        $FreeDiskSpace = ($DiskDetails.Free -as [double[]] | Measure-Object -Sum).Sum
-
-        # Store VM details in an object
+        # Store VM details
         $VMData += [PSCustomObject]@{
-            "VM Name"           = $VMName
-            "Resource Group"    = $ResourceGroup
-            "Size"              = $VMSize
-            "vCPUs"             = $vCPUs
-            "Memory (GB)"       = $MemoryGB
+            "VM Name" = $VMName
+            "Resource Group" = $ResourceGroup
+            "Subscription ID" = $SubscriptionId
+            "Size" = $VMSize
+            "vCPUs" = $vCPUs
+            "Memory (GB)" = $MemoryGB
             "CPU Utilization (%)" = $CPUUtilization
-            "OS Disk"           = $OSDisk
-            "Data Disks"        = $DataDisks
-            "Total Disk Space (GB)" = $TotalDiskSpace
-            "Free Disk Space (GB)"  = $FreeDiskSpace
+            "OS Disk" = $OSDisk
+            "Data Disks" = $DataDisks
         }
     }
 }
