@@ -1,0 +1,28 @@
+import json
+
+def get_azure_config(env, file_path="azure-config.json"):
+    """
+    Reads Azure configuration from a JSON file and returns environment-specific details.
+
+    :param env: The environment name (e.g., "Dev", "QA", "UAT", "Prod")
+    :param file_path: Path to the Azure configuration JSON file
+    :return: Dictionary containing environment-specific details
+    """
+    try:
+        with open(file_path, "r") as file:
+            config = json.load(file)
+
+        if env not in config["environments"]:
+            raise ValueError(f"Environment '{env}' not found in the configuration file.")
+
+        env_config = config["environments"][env]
+        return {
+            "tenantId": config["tenantId"],
+            "subscriptionId": config["subscriptionId"],
+            "resourceGroups": env_config.get("resourceGroups", []),
+            "scope": env_config.get("scope", "")
+        }
+
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        print(f"Error loading config: {e}")
+        return None
