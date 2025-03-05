@@ -1,0 +1,44 @@
+#!/bin/bash
+
+# Check if an environment is provided
+if [ -z "$1" ]; then
+    echo "Usage: source kubeconfig-setup.sh <environment>"
+    echo "Available environments: dev, staging, prod"
+    return 1
+fi
+
+ENV=$1
+
+# Define kubeconfig file paths based on the environment
+case "$ENV" in
+    dev)
+        export KUBECONFIG=~/.kube/config-dev
+        NAMESPACE="dev-namespace"
+        ;;
+    staging)
+        export KUBECONFIG=~/.kube/config-staging
+        NAMESPACE="staging-namespace"
+        ;;
+    prod)
+        export KUBECONFIG=~/.kube/config-prod
+        NAMESPACE="prod-namespace"
+        ;;
+    *)
+        echo "Invalid environment! Use: dev, staging, or prod"
+        return 1
+        ;;
+esac
+
+# Set the namespace
+kubectl config set-context --current --namespace=$NAMESPACE
+
+# Create an alias for kubectl
+alias k="kubectl"
+
+# Show the current namespace
+echo "Environment: $ENV"
+echo "Using KUBECONFIG: $KUBECONFIG"
+echo "Current namespace: $(kubectl config view --minify --output 'jsonpath={..namespace}')"
+
+# Export alias so it's available in the session
+export -f k
