@@ -1,27 +1,29 @@
 #!/bin/bash
 
-# Check if an environment is provided
+# Check if at least one argument (environment) is provided
 if [ -z "$1" ]; then
-    echo "Usage: source kubeconfig-setup.sh <environment>"
+    echo "Usage: source kubeconfig-setup.sh <environment> [tenant]"
     echo "Available environments: dev, staging, prod"
+    echo "Example: source kubeconfig-setup.sh dev tenant1"
     return 1
 fi
 
 ENV=$1
+TENANT=$2  # Optional parameter
 
 # Define kubeconfig file paths based on the environment
 case "$ENV" in
     dev)
         export KUBECONFIG=~/.kube/config-dev
-        NAMESPACE="dev-namespace"
+        DEFAULT_TENANT="default-dev-tenant"
         ;;
     staging)
         export KUBECONFIG=~/.kube/config-staging
-        NAMESPACE="staging-namespace"
+        DEFAULT_TENANT="default-staging-tenant"
         ;;
     prod)
         export KUBECONFIG=~/.kube/config-prod
-        NAMESPACE="prod-namespace"
+        DEFAULT_TENANT="default-prod-tenant"
         ;;
     *)
         echo "Invalid environment! Use: dev, staging, or prod"
@@ -29,16 +31,24 @@ case "$ENV" in
         ;;
 esac
 
+# If tenant is not provided, use the default tenant
+if [ -z "$TENANT" ]; then
+    TENANT=$DEFAULT_TENANT
+fi
+
+# Construct the namespace based on tenant
+NAMESPACE="${ENV}-${TENANT}"
+
 # Set the namespace
 kubectl config set-context --current --namespace=$NAMESPACE
 
 # Create an alias for kubectl
 alias k="kubectl"
 
-# Show the current namespace
+# Show the current settings
 echo "Environment: $ENV"
 echo "Using KUBECONFIG: $KUBECONFIG"
-echo "Current namespace: $(kubectl config view --minify --output 'jsonpath={..namespace}')"
+echo "Namespace set to: $NAMESPACE"
 
 # Export alias so it's available in the session
 export -f k
