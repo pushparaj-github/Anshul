@@ -1,0 +1,53 @@
+# Set your GitLab API token
+$GITLAB_TOKEN = "your_personal_access_token"
+
+# Set your GitLab instance URL (Change if using self-hosted GitLab)
+$GITLAB_URL = "https://gitlab.com/api/v4"
+
+# Function to get CI/CD variables from a GitLab project
+function Get-ProjectVariables {
+    param (
+        [string]$ProjectID
+    )
+    $url = "$GITLAB_URL/projects/$ProjectID/variables"
+    $headers = @{ "PRIVATE-TOKEN" = $GITLAB_TOKEN }
+
+    $response = Invoke-RestMethod -Uri $url -Headers $headers -Method Get
+    Write-Output "🔹 **Project-Level Variables (Project ID: $ProjectID):**"
+    $response | ForEach-Object { Write-Output "$($_.key) = $($_.value)" }
+}
+
+# Function to get CI/CD variables from a GitLab group
+function Get-GroupVariables {
+    param (
+        [string]$GroupID
+    )
+    $url = "$GITLAB_URL/groups/$GroupID/variables"
+    $headers = @{ "PRIVATE-TOKEN" = $GITLAB_TOKEN }
+
+    $response = Invoke-RestMethod -Uri $url -Headers $headers -Method Get
+    Write-Output "🔹 **Group-Level Variables (Group ID: $GroupID):**"
+    $response | ForEach-Object { Write-Output "$($_.key) = $($_.value)" }
+}
+
+# Function to get CI/CD variables from the GitLab instance level
+function Get-InstanceVariables {
+    $url = "$GITLAB_URL/admin/ci/variables"
+    $headers = @{ "PRIVATE-TOKEN" = $GITLAB_TOKEN }
+
+    $response = Invoke-RestMethod -Uri $url -Headers $headers -Method Get
+    Write-Output "🔹 **Instance-Level Variables:**"
+    $response | ForEach-Object { Write-Output "$($_.key) = $($_.value)" }
+}
+
+# Replace with your actual Project ID and Group ID
+$ProjectID = "your_project_id"
+$GroupID = "your_group_id"
+
+# Fetch all variables
+Get-ProjectVariables -ProjectID $ProjectID
+Get-GroupVariables -GroupID $GroupID
+
+# Instance-level variables require admin access
+# Uncomment below if you have admin access
+# Get-InstanceVariables
