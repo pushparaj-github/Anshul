@@ -84,3 +84,29 @@ resource "azurerm_servicebus_subscription_rule" "sb_rule" {
   sql_filter      = each.value.filter_type == "SqlFilter" ? each.value.filter_value : null
   correlation_id  = each.value.filter_type == "CorrelationFilter" ? each.value.filter_value : null
 }
+
+
+///////////////
+
+# Fetch existing subscriptions
+data "azurerm_servicebus_subscription" "existing_subscriptions" {
+  for_each = {
+    for sub in local.servicebus_config : 
+    "${sub.topic}-${sub.name}" => sub
+  }
+
+  name     = each.value.name
+  topic_id = "/subscriptions/<SUBSCRIPTION_ID>/resourceGroups/<RESOURCE_GROUP>/providers/Microsoft.ServiceBus/namespaces/<NAMESPACE>/topics/${each.value.topic}"
+}
+
+
+
+# Filter out existing subscriptions
+locals {
+  # Create a map only for new subscriptions
+  new_subscriptions = {
+    for sub in local.servicebus_config :
+    "${sub.topic}-${sub.name}" => sub
+    if !contains([for s in data.azurerm_servicebus_subscription.existing_subscriptions : s.name], sub.name)
+  }
+}
