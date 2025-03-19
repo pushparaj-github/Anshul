@@ -60,3 +60,27 @@ resource "azurerm_servicebus_subscription_rule" "sb_rule" {
     }
   }
 }
+
+
+****************
+resource "azurerm_servicebus_subscription_rule" "sb_rule" {
+  for_each = {
+    for sub in local.servicebus_config : 
+    "${sub.name}-${sub.topic}" => flatten([
+      for rule in sub.rule : {
+        subscription_name = sub.name
+        topic_name        = sub.topic
+        rule_name         = rule.name
+        filter_type       = rule.filter_type
+        filter_value      = rule.filter_value
+      }
+    ])
+  }
+
+  name            = each.value.rule_name
+  subscription_id = "/subscriptions/<SUBSCRIPTION_ID>/resourceGroups/<RESOURCE_GROUP>/providers/Microsoft.ServiceBus/namespaces/<NAMESPACE>/topics/${each.value.topic_name}/subscriptions/${each.value.subscription_name}"
+
+  filter_type     = each.value.filter_type
+  sql_filter      = each.value.filter_type == "SqlFilter" ? each.value.filter_value : null
+  correlation_id  = each.value.filter_type == "CorrelationFilter" ? each.value.filter_value : null
+}
