@@ -1,0 +1,62 @@
+Creation Subscription
+variable "subscriptions" {
+  type = list(object({
+    name    = string
+    topic   = string
+    rule    = list(object({
+      name           = string
+      filter_type    = string
+      filter_value   = string
+    }))
+  }))
+  default = [
+    {
+      name  = "sub1"
+      topic = "topic1"
+      rule = [
+        { name = "rule1", filter_type = "SqlFilter", filter_value = "property1 = 'value1'" },
+        { name = "rule2", filter_type = "SqlFilter", filter_value = "property2 = 'value2'" }
+      ]
+    },
+    {
+      name  = "sub2"
+      topic = "topic2"
+      rule = [
+        { name = "rule1", filter_type = "SqlFilter", filter_value = "property3 = 'value3'" }
+      ]
+    }
+  ]
+}
+
+
+—————
+resource "azurerm_servicebus_subscription" "sb_sub" {
+  for_each            = { for sub in var.subscriptions : "${sub.topic}.${sub.name}" => sub }
+
+  name                = each.value.name
+  topic_id            = "/subscriptions/<SUBSCRIPTION_ID>/resourceGroups/<RESOURCE_GROUP>/providers/Microsoft.ServiceBus/namespaces/<NAMESPACE>/topics/${each.value.topic}"
+  resource_group_name = "<RESOURCE_GROUP>"
+  namespace_name      = "<NAMESPACE>"
+}
+
+
+—
+resource "azurerm_servicebus_subscription_rule" "sb_rule" {
+  for_each = { 
+    for sub in var.subscriptions : 
+    "${sub.topic}.${sub.name}" => sub.rule 
+    if length(sub.rule) > 0
+  }
+
+  subscription_id = azurerm_servicebus_subscription.sb_sub[each.key].id
+
+  dynamic "rule" {
+    for_each = each.value
+    content {
+      name           = rule.value.name
+      filter_type    = rule.value.filter_type
+      sql_filter     = rule.value.filter_type == "SqlFilter" ? rule.value.filter_value : null
+      correlation_id = rule.value.filter_type == "CorrelationFilter" ? rule.value.filter_value : null
+    }
+  }
+}
