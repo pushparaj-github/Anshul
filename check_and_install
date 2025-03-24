@@ -1,0 +1,130 @@
+# -----------------------------
+# Helper Function: Install Feature if Missing
+# -----------------------------
+function Install-FeatureIfMissing {
+    param (
+        [string]$FeatureName,
+        [string]$DisplayName
+    )
+    
+    $feature = Get-WindowsFeature -Name $FeatureName
+    if (-not $feature.Installed) {
+        Write-Host "Installing $DisplayName..." -ForegroundColor Cyan
+        Install-WindowsFeature -Name $FeatureName -IncludeManagementTools
+    } else {
+        Write-Host "$DisplayName is already installed." -ForegroundColor Green
+    }
+}
+
+# -----------------------------
+# Install IIS and ASP.NET 4.8
+# -----------------------------
+Install-FeatureIfMissing -FeatureName "Web-Server" -DisplayName "IIS"
+Install-FeatureIfMissing -FeatureName "Web-Asp-Net45" -DisplayName "ASP.NET 4.8"
+Install-FeatureIfMissing -FeatureName "Web-Net-Ext45" -DisplayName ".NET Extensibility 4.8"
+Install-FeatureIfMissing -FeatureName "Web-ISAPI-Ext" -DisplayName "ISAPI Extensions"
+Install-FeatureIfMissing -FeatureName "Web-ISAPI-Filter" -DisplayName "ISAPI Filters"
+
+# -----------------------------
+# Install .NET 4.8 Runtime (if missing)
+# -----------------------------
+if (-not (Test-Path "C:\Program Files\dotnet\shared\Microsoft.NETCore.App\4.8*")) {
+    Write-Host "Installing .NET 4.8 Runtime..." -ForegroundColor Cyan
+    Add-WindowsFeature NET-Framework-Features, NET-Framework-45-Core
+} else {
+    Write-Host ".NET 4.8 Runtime is already installed." -ForegroundColor Green
+}
+
+# -----------------------------
+# Install .NET 8.0 Hosting Bundle
+# -----------------------------
+$dotnetPath = "C:\Program Files\dotnet"
+if (-not (Test-Path "$dotnetPath\shared\Microsoft.NETCore.App\8.0*")) {
+    $dotnetUrl = "https://download.visualstudio.microsoft.com/download/pr/36bc5d9f-57df-44a5-9248-828b3c3f96cc/77509dcfc25709bc5f289d0c4e2a1c55/dotnet-hosting-8.0.3-win-x64.exe"
+    $dotnetInstaller = "$env:TEMP\dotnet-hosting-8.0.3-win-x64.exe"
+    Invoke-WebRequest -Uri $dotnetUrl -OutFile $dotnetInstaller
+    Write-Host "Installing .NET 8.0 Hosting Bundle..." -ForegroundColor Cyan
+    Start-Process -FilePath $dotnetInstaller -ArgumentList "/quiet", "/norestart" -Wait
+    Remove-Item -Path $dotnetInstaller -Force
+} else {
+    Write-Host ".NET 8.0 Hosting Bundle is already installed." -ForegroundColor Green
+}
+
+# -----------------------------
+# Install WebDeploy (if missing)
+# -----------------------------
+$webDeployPath = "C:\Program Files\IIS\Microsoft Web Deploy V3"
+if (-not (Test-Path $webDeployPath)) {
+    $webDeployUrl = "https://download.microsoft.com/download/7/5/F/75F9B197-4A87-42C8-88F8-91562A1EF2BD/WebDeploy_amd64_en-US.msi"
+    $webDeployInstaller = "$env:TEMP\WebDeploy_amd64.msi"
+    Invoke-WebRequest -Uri $webDeployUrl -OutFile $webDeployInstaller
+    Write-Host "Installing WebDeploy..." -ForegroundColor Cyan
+    Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$webDeployInstaller`" /quiet /norestart" -Wait
+    Remove-Item -Path $webDeployInstaller -Force
+} else {
+    Write-Host "WebDeploy is already installed." -ForegroundColor Green
+}
+
+# -----------------------------
+# Install Miniconda for All Users (if missing)
+# -----------------------------
+$minicondaPath = "C:\ProgramData\Miniconda3"
+if (-not (Test-Path $minicondaPath)) {
+    $minicondaUrl = "https://repo.anaconda.com/miniconda/Miniconda3-latest-Windows-x86_64.exe"
+    $minicondaInstaller = "$env:TEMP\Miniconda3-latest-Windows-x86_64.exe"
+    Invoke-WebRequest -Uri $minicondaUrl -OutFile $minicondaInstaller
+    Write-Host "Installing Miniconda..." -ForegroundColor Cyan
+    Start-Process -FilePath $minicondaInstaller -ArgumentList "/InstallationType=AllUsers", "/AddToPath=1", "/RegisterPython=1", "/S", "/D=$minicondaPath" -Wait
+    Remove-Item -Path $minicondaInstaller -Force
+} else {
+    Write-Host "Miniconda is already installed." -ForegroundColor Green
+}
+
+# -----------------------------
+# Install Vault Certificate (if missing)
+# -----------------------------
+$vaultCertPath = "Cert:\LocalMachine\Root"
+$vaultCertThumbprint = "<VAULT_CERT_THUMBPRINT>"  # Replace with your Vault certificate thumbprint
+$vaultUrl = "https://<YOUR_VAULT_URL>:8200/v1/pki/ca/pem"  # Replace with your Vault CA URL
+$certFilePath = "$env:TEMP\vault-ca-cert.pem"
+
+# Check if the Vault certificate is already installed
+if (-not (Get-ChildItem $vaultCertPath | Where-Object { $_.Thumbprint -eq $vaultCertThumbprint })) {
+    Write-Host "Installing Vault Certificate..." -ForegroundColor Cyan
+    Invoke-WebRequest -Uri $vaultUrl -OutFile $certFilePath
+    Import-Certificate -FilePath $certFilePath -CertStoreLocation $vaultCertPath
+    Remove-Item -Path $certFilePath -Force
+} else {
+    Write-Host "Vault certificate is already installed." -ForegroundColor Green
+}
+
+# -----------------------------
+# Grant Private Key Access to User
+# -----------------------------
+$targetUser = "PROD\myaccount"  # Replace with your user account
+$certStorePath = "C:\ProgramData\Microsoft\Crypto\RSA\MachineKeys"
+$cert = Get-ChildItem "Cert:\LocalMachine\My" | Where-Object { $_.Thumbprint -eq $vaultCertThumbprint }
+
+if ($cert) {
+    $certFile = Get-ChildItem -Path $certStorePath | Where-Object { $_.Name -match $cert.Thumbprint }
+    
+    if ($certFile) {
+        Write-Host "Granting private key access to $targetUser..." -ForegroundColor Cyan
+        $acl = Get-Acl -Path "$certStorePath\$($certFile.Name)"
+        $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule($targetUser, "FullControl", "Allow")
+        $acl.AddAccessRule($accessRule)
+        Set-Acl -Path "$certStorePath\$($certFile.Name)" -AclObject $acl
+    } else {
+        Write-Host "Private key not found!" -ForegroundColor Red
+    }
+} else {
+    Write-Host "Vault certificate not found!" -ForegroundColor Red
+}
+
+# -----------------------------
+# Restart IIS
+# -----------------------------
+Write-Host "Restarting IIS..." -ForegroundColor Yellow
+Restart-Service W3SVC
+
+Write-Host "`nAll required components have been installed and configured!" -ForegroundColor Green
