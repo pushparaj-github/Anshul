@@ -128,3 +128,51 @@ Write-Host "Restarting IIS..." -ForegroundColor Yellow
 Restart-Service W3SVC
 
 Write-Host "`nAll required components have been installed and configured!" -ForegroundColor Green
+
+
+---------COnda 
+# -----------------------------
+# Variables
+# -----------------------------
+$minicondaPath = "C:\ProgramData\Miniconda3"
+$anacondaPrompt = "$minicondaPath\Scripts\activate.bat"
+$commands = @(
+    "conda activate base",
+    "pip install --upgrade pip",
+    "pip install numpy pandas",
+    "pip show numpy pandas"
+)
+
+# -----------------------------
+# Check if Miniconda is Installed
+# -----------------------------
+if (-not (Test-Path $minicondaPath)) {
+    Write-Host "Miniconda is not installed. Please install it first." -ForegroundColor Red
+    Exit
+}
+
+# -----------------------------
+# Create Temporary Batch File with Commands
+# -----------------------------
+$tempBatchFile = "$env:TEMP\AnacondaInstall.bat"
+
+# Add activation and installation commands to the batch file
+Set-Content -Path $tempBatchFile -Value "@echo off"
+Add-Content -Path $tempBatchFile -Value "call `"$anacondaPrompt`""
+
+foreach ($command in $commands) {
+    Add-Content -Path $tempBatchFile -Value $command
+}
+
+# -----------------------------
+# Run the Batch File in Anaconda Prompt
+# -----------------------------
+Write-Host "Opening Anaconda Prompt and running installations..." -ForegroundColor Cyan
+Start-Process -FilePath "cmd.exe" -ArgumentList "/c `"$tempBatchFile`"" -Wait
+
+# -----------------------------
+# Clean Up
+# -----------------------------
+Remove-Item -Path $tempBatchFile -Force
+
+Write-Host "`n✅ numpy and pandas installed successfully via Anaconda Prompt!" -ForegroundColor Green
