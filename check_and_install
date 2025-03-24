@@ -135,8 +135,27 @@ Write-Host "`nAll required components have been installed and configured!" -Fore
 # Variables
 # -----------------------------
 $minicondaPath = "C:\ProgramData\Miniconda3"
-$baseEnvPath = "$minicondaPath\Scripts\activate"
-$condaActivate = "$baseEnvPath base"
+$condaActivate = "$minicondaPath\Scripts\activate"
+$condaExe = "$minicondaPath\Scripts\conda.exe"
+$condaProfilePath = "$env:USERPROFILE\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1"
+
+# -----------------------------
+# List of Conda Packages to Check and Install
+# -----------------------------
+$packages = @(
+    "numpy",
+    "pandas",
+    "scipy",
+    "matplotlib",
+    "scikit-learn",
+    "seaborn",
+    "requests",
+    "beautifulsoup4",
+    "pillow",
+    "pytest",
+    "pyspark",
+    "jupyterlab"
+)
 
 # -----------------------------
 # Check if Miniconda is Installed
@@ -147,38 +166,53 @@ if (-not (Test-Path $minicondaPath)) {
 }
 
 # -----------------------------
+# Run 'conda init' if not already initialized
+# -----------------------------
+if (!(Test-Path "$env:USERPROFILE\.conda\envs")) {
+    Write-Host "Running 'conda init' to initialize Conda for PowerShell..." -ForegroundColor Yellow
+    & $condaExe init powershell
+
+    # Manually source the Conda initialization script
+    Write-Host "Sourcing Conda initialization script..." -ForegroundColor Cyan
+
+    if (Test-Path $condaProfilePath) {
+        . $condaProfilePath  # Manually load the profile into the current session
+    } else {
+        Write-Host "No Conda profile found. Proceeding without sourcing." -ForegroundColor Yellow
+    }
+}
+
+# -----------------------------
+# Add Miniconda to PATH (If Not Added)
+# -----------------------------
+if (-not ($env:Path -match "Miniconda3")) {
+    Write-Host "Adding Miniconda to PATH temporarily..." -ForegroundColor Yellow
+    $env:Path += ";$minicondaPath;$minicondaPath\Scripts;$minicondaPath\Library\bin"
+}
+
+# -----------------------------
 # Function to Check if a Package is Installed
 # -----------------------------
 function Check-Package {
     param([string]$package)
-
-    # Activate the conda environment and run pip show
-    $output = Start-Process -FilePath "powershell" `
-        -ArgumentList "-Command `"$baseEnvPath; conda activate base; pip show $package`"" `
-        -NoNewWindow -PassThru | Out-String
-
+    
+    # Activate conda environment and run pip show
+    $output = & "$condaActivate" base; pip show $package 2>&1
     return $output -match "Name: $package"
 }
 
 # -----------------------------
-# Check for Installed Packages
+# Loop Through the Array and Check for Missing Packages
 # -----------------------------
 $missingPackages = @()
 
-# Check for numpy
-if (-not (Check-Package -package "numpy")) {
-    Write-Host "numpy not found. Adding to install list..." -ForegroundColor Yellow
-    $missingPackages += "numpy"
-} else {
-    Write-Host "numpy is already installed." -ForegroundColor Green
-}
-
-# Check for pandas
-if (-not (Check-Package -package "pandas")) {
-    Write-Host "pandas not found. Adding to install list..." -ForegroundColor Yellow
-    $missingPackages += "pandas"
-} else {
-    Write-Host "pandas is already installed." -ForegroundColor Green
+foreach ($pkg in $packages) {
+    if (-not (Check-Package -package $pkg)) {
+        Write-Host "$pkg not found. Adding to install list..." -ForegroundColor Yellow
+        $missingPackages += $pkg
+    } else {
+        Write-Host "$pkg is already installed." -ForegroundColor Green
+    }
 }
 
 # -----------------------------
@@ -187,10 +221,8 @@ if (-not (Check-Package -package "pandas")) {
 if ($missingPackages.Count -gt 0) {
     Write-Host "`nInstalling missing packages: $($missingPackages -join ', ')..." -ForegroundColor Cyan
 
-    # Install missing packages using a new PowerShell process
-    Start-Process -FilePath "powershell" `
-        -ArgumentList "-Command `"$baseEnvPath; conda activate base; pip install $($missingPackages -join ' ')`"" `
-        -NoNewWindow -Wait
+    # Activate the base environment and install missing packages
+    & "$condaActivate" base; pip install $($missingPackages -join ' ')
 
     Write-Host "`n✅ Missing packages installed successfully!" -ForegroundColor Green
 } else {
@@ -202,8 +234,6 @@ if ($missingPackages.Count -gt 0) {
 # -----------------------------
 Write-Host "`nVerifying installations..." -ForegroundColor Cyan
 
-Start-Process -FilePath "powershell" `
-    -ArgumentList "-Command `"$baseEnvPath; conda activate base; pip show numpy pandas`"" `
-    -NoNewWindow -Wait
+& "$condaActivate" base; pip show $($packages -join ' ')
 
-Write-Host "`n✅ numpy and pandas verification completed!" -ForegroundColor Green
+Write-Host "`n✅ All packages verification completed!" -ForegroundColor Green
