@@ -136,6 +136,7 @@ Write-Host "`nAll required components have been installed and configured!" -Fore
 # -----------------------------
 $minicondaPath = "C:\ProgramData\Miniconda3"
 $baseEnvPath = "$minicondaPath\Scripts\activate"
+$condaActivate = "$baseEnvPath base"
 
 # -----------------------------
 # Check if Miniconda is Installed
@@ -146,20 +147,21 @@ if (-not (Test-Path $minicondaPath)) {
 }
 
 # -----------------------------
-# Check for Installed Packages
+# Function to Check if a Package is Installed
 # -----------------------------
 function Check-Package {
     param([string]$package)
 
-    # Activate conda environment and run pip show
-    $output = & "$baseEnvPath" base `
-        && pip show $package 2>&1
+    # Activate the conda environment and run pip show
+    $output = Start-Process -FilePath "powershell" `
+        -ArgumentList "-Command `"$baseEnvPath; conda activate base; pip show $package`"" `
+        -NoNewWindow -PassThru | Out-String
 
     return $output -match "Name: $package"
 }
 
 # -----------------------------
-# Install Missing Packages
+# Check for Installed Packages
 # -----------------------------
 $missingPackages = @()
 
@@ -185,9 +187,12 @@ if (-not (Check-Package -package "pandas")) {
 if ($missingPackages.Count -gt 0) {
     Write-Host "`nInstalling missing packages: $($missingPackages -join ', ')..." -ForegroundColor Cyan
 
-    # Activate the base environment and install missing packages
-    & "$baseEnvPath" base `
-        && pip install $missingPackages
+    # Install missing packages using a new PowerShell process
+    Start-Process -FilePath "powershell" `
+        -ArgumentList "-Command `"$baseEnvPath; conda activate base; pip install $($missingPackages -join ' ')`"" `
+        -NoNewWindow -Wait
+
+    Write-Host "`n✅ Missing packages installed successfully!" -ForegroundColor Green
 } else {
     Write-Host "`nAll packages are already installed. No action needed." -ForegroundColor Green
 }
@@ -196,7 +201,9 @@ if ($missingPackages.Count -gt 0) {
 # Verify Installations
 # -----------------------------
 Write-Host "`nVerifying installations..." -ForegroundColor Cyan
-& "$baseEnvPath" base `
-    && pip show numpy pandas
 
-Write-Host "`n✅ numpy and pandas are installed successfully!" -ForegroundColor Green
+Start-Process -FilePath "powershell" `
+    -ArgumentList "-Command `"$baseEnvPath; conda activate base; pip show numpy pandas`"" `
+    -NoNewWindow -Wait
+
+Write-Host "`n✅ numpy and pandas verification completed!" -ForegroundColor Green
