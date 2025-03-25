@@ -362,3 +362,65 @@ $store.Add($cert)
 $store.Close()
 
 Write-Host "Certificate installed successfully in Trusted Root."
+
+
+
+----cert2
+# Variables
+$certPath = "C:\Path\To\Your\Certificate.pfx"   # PFX file path
+$storeName = "My"                               # Personal Certificate Store
+$storeLocation = "LocalMachine"                 # Local Machine store
+
+# Function to check if the certificate already exists
+function Check-CertificateExists {
+    param (
+        [string]$certPath,
+        [string]$storeName,
+        [string]$storeLocation
+    )
+
+    # Load the certificate to get its thumbprint
+    $certToCheck = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2
+    $certToCheck.Import($certPath, $null, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::PersistKeySet)
+    
+    $thumbprint = $certToCheck.Thumbprint
+
+    # Check if the certificate already exists
+    $existingCert = Get-ChildItem -Path "Cert:\$storeLocation\$storeName" | Where-Object { $_.Thumbprint -eq $thumbprint }
+
+    if ($existingCert) {
+        Write-Host "Certificate with thumbprint $thumbprint already exists."
+        return $true
+    } else {
+        Write-Host "Certificate not found."
+        return $false
+    }
+}
+
+# Check if the certificate already exists
+if (-not (Check-CertificateExists -certPath $certPath -storeName $storeName -storeLocation $storeLocation)) {
+
+    # Install the certificate
+    Write-Host "Installing certificate..."
+    
+    $certToInstall = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2
+    $certToInstall.Import($certPath, $null, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::PersistKeySet)
+
+    $store = New-Object System.Security.Cryptography.X509Certificates.X509Store($storeName, $storeLocation)
+    $store.Open("ReadWrite")
+    $store.Add($certToInstall)
+    $store.Close()
+
+    Write-Host "Certificate installed successfully."
+    
+    # Validate installation by calling the function again
+    Write-Host "`nValidating the certificate installation..."
+    if (Check-CertificateExists -certPath $certPath -storeName $storeName -storeLocation $storeLocation)) {
+        Write-Host "Certificate installation validated successfully."
+    } else {
+        Write-Host "Certificate installation failed. Please verify manually."
+    }
+
+} else {
+    Write-Host "Skipping installation. Certificate already exists."
+}
