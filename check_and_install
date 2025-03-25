@@ -340,3 +340,25 @@ Write-Host "Website '$siteName' is now running at http://$hostHeader`:$port" -Fo
 # Display Website Details
 # -----------------------------
 Get-Website -Name $siteName | Select-Object Name, ID, State, @{Name="Bindings"; Expression={$_.Bindings.Collection}} | Format-List
+
+
+
+****Cert1
+# Variables
+$certPath = "C:\Path\To\Your\Certificate.cer"
+$storeName = "Root"   # Trusted Root Certification
+$storeLocation = "LocalMachine"
+
+# Import the certificate
+$cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2
+$cert.Import($certPath)
+
+# Open the certificate store
+$store = New-Object System.Security.Cryptography.X509Certificates.X509Store($storeName, $storeLocation)
+$store.Open("ReadWrite")
+
+# Add the certificate
+$store.Add($cert)
+$store.Close()
+
+Write-Host "Certificate installed successfully in Trusted Root."
