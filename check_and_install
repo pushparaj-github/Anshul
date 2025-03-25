@@ -237,3 +237,106 @@ Write-Host "`nVerifying installations..." -ForegroundColor Cyan
 & "$condaActivate" base; pip show $($packages -join ' ')
 
 Write-Host "`n✅ All packages verification completed!" -ForegroundColor Green
+
+
+
+----------------webiste settings
+# -----------------------------
+# Variables
+# -----------------------------
+$siteName = "MyNewWebsite"
+$appPoolName = "MyAppPool"
+$physicalPath = "C:\inetpub\wwwroot\MyNewWebsite"
+$port = 8080
+$ipAddress = "*"
+$hostHeader = "localhost"  # Use your desired domain name
+$siteID = 1001  # Custom site ID
+
+# Additional Bindings (Array of Bindings)
+$bindings = @(
+    @{IPAddress = "*"; Port = 8081; Hostname = "localhost" },
+    @{IPAddress = "*"; Port = 8082; Hostname = "test.local" }
+)
+
+# -----------------------------
+# Check if IIS is Installed, If Not Install It
+# -----------------------------
+if (-not (Get-WindowsFeature -Name "Web-Server").Installed) {
+    Write-Host "IIS is not installed. Installing IIS..." -ForegroundColor Yellow
+    Install-WindowsFeature -Name "Web-Server" -IncludeManagementTools
+    Write-Host "IIS installed successfully!" -ForegroundColor Green
+}
+
+# -----------------------------
+# Create the Physical Directory If It Doesn't Exist
+# -----------------------------
+if (-not (Test-Path -Path $physicalPath)) {
+    Write-Host "Creating directory: $physicalPath" -ForegroundColor Cyan
+    New-Item -ItemType Directory -Path $physicalPath -Force
+}
+
+# -----------------------------
+# Create a New Application Pool
+# -----------------------------
+if (-not (Get-WebAppPool -Name $appPoolName -ErrorAction SilentlyContinue)) {
+    Write-Host "Creating application pool: $appPoolName" -ForegroundColor Cyan
+    New-WebAppPool -Name $appPoolName
+} else {
+    Write-Host "Application pool '$appPoolName' already exists." -ForegroundColor Green
+}
+
+# -----------------------------
+# Create a New Website with Specific ID
+# -----------------------------
+if (-not (Get-Website -Name $siteName -ErrorAction SilentlyContinue)) {
+    Write-Host "Creating website: $siteName with ID: $siteID" -ForegroundColor Cyan
+    
+    # Create Website
+    New-Website -Name $siteName `
+                -Port $port `
+                -IPAddress $ipAddress `
+                -HostHeader $hostHeader `
+                -PhysicalPath $physicalPath `
+                -ApplicationPool $appPoolName
+
+    # Set Custom Site ID
+    $site = Get-Website -Name $siteName
+    if ($site) {
+        $site.ID = $siteID
+        $site | Set-Item
+        Write-Host "Site ID set to $siteID" -ForegroundColor Green
+    }
+} else {
+    Write-Host "Website '$siteName' already exists." -ForegroundColor Green
+}
+
+# -----------------------------
+# Configure Multiple Bindings
+# -----------------------------
+foreach ($binding in $bindings) {
+    $existingBinding = Get-WebBinding -Name $siteName | Where-Object {
+        $_.bindingInformation -eq "$($binding.IPAddress):$($binding.Port):$($binding.Hostname)"
+    }
+
+    if (-not $existingBinding) {
+        Write-Host "Adding binding: $($binding.IPAddress):$($binding.Port) ($($binding.Hostname))" -ForegroundColor Cyan
+        New-WebBinding -Name $siteName `
+                       -IPAddress $binding.IPAddress `
+                       -Port $binding.Port `
+                       -HostHeader $binding.Hostname `
+                       -Protocol "http"
+    } else {
+        Write-Host "Binding already exists: $($binding.IPAddress):$($binding.Port)" -ForegroundColor Yellow
+    }
+}
+
+# -----------------------------
+# Start the Website
+# -----------------------------
+Start-Website -Name $siteName
+Write-Host "Website '$siteName' is now running at http://$hostHeader`:$port" -ForegroundColor Green
+
+# -----------------------------
+# Display Website Details
+# -----------------------------
+Get-Website -Name $siteName | Select-Object Name, ID, State, @{Name="Bindings"; Expression={$_.Bindings.Collection}} | Format-List
