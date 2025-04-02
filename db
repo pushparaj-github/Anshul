@@ -1,0 +1,28 @@
+cat <<EOF > install_libs.sh
+#!/bin/bash
+
+LIBRARY_CHECK_FILE="/databricks/init/libraries_installed.marker"
+LIBRARIES=("pandas" "numpy" "scikit-learn")  # Add more if needed
+MISSING_LIBRARIES=()
+
+# Check each library
+for lib in "\${LIBRARIES[@]}"; do
+    if ! python -c "import \${lib}" &>/dev/null; then
+        MISSING_LIBRARIES+=("\${lib}")
+    fi
+done
+
+# Install only missing libraries
+if [[ \${#MISSING_LIBRARIES[@]} -gt 0 ]]; then
+    echo "Installing missing libraries: \${MISSING_LIBRARIES[*]}"
+    pip install "\${MISSING_LIBRARIES[@]}"
+    touch "\$LIBRARY_CHECK_FILE"
+else
+    echo "All required libraries are already installed. Skipping installation."
+fi
+EOF
+************
+  dbfs cp install_libs.sh dbfs:/databricks/init/install_libs.sh --overwrite
+
+  ************
+  dbfs:/databricks/init/install_libs.sh
