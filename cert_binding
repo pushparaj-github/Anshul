@@ -1,0 +1,56 @@
+param (
+    [string]$certThumbprint = "",  # Optional: leave blank to search by subject
+    [string]$certSubject = "CN=yourdomain.com",
+    [array]$sites = @(
+        @{ name = "Site1"; port = 44301 },
+        @{ name = "Site2"; port = 44302 }
+    )
+)
+
+# Clean up the thumbprint if provided
+if ($certThumbprint) {
+    $certThumbprint = $certThumbprint.Replace(" ", "").ToUpper()
+}
+
+# Get the certificate from LocalMachine\My
+$cert = if ($certThumbprint) {
+    Get-ChildItem -Path Cert:\LocalMachine\My | Where-Object {
+        $_.Thumbprint -eq $certThumbprint
+    }
+} else {
+    Get-ChildItem -Path Cert:\LocalMachine\My | Where-Object {
+        $_.Subject -like "*$certSubject*"
+    } | Select-Object -First 1
+}
+
+# Check if the certificate was found
+if (-not $cert) {
+    Write-Error "❌ Certificate not found in LocalMachine\My store. Exiting."
+    exit 1
+}
+
+Write-Output "✅ Certificate found: $($cert.Subject)"
+$thumbprint = $cert.Thumbprint.Replace(" ", "").ToUpper()
+
+foreach ($site in $sites) {
+    $port = $site.port
+    $siteName = $site.name
+
+    Write-Output "🔧 Processing binding for '$siteName' on port $port"
+
+    # Remove existing SSL binding if it exists
+    netsh http delete sslcert ipport=0.0.0.0:$port 2>$null
+
+    # Generate a new AppId GUID
+    $appId = [guid]::NewGuid().ToString("B")
+
+    # Add the new SSL binding
+    netsh http add sslcert ipport=0.0.0.0:$port `
+        certhash=$thumbprint `
+        appid=$appId `
+        certstorename=MY
+
+    Write-Output "✅ HTTPS binding created for '$siteName' on port $port"
+}
+
+Write-Output "🎉 All bindings configured successfully!"
