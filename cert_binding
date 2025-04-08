@@ -54,3 +54,48 @@ foreach ($site in $sites) {
 }
 
 Write-Output "🎉 All bindings configured successfully!"
+
+
+
+****************
+# Basic info
+resourceGroup="my-resource-group"
+storageAccount="mystorageacct"
+location="eastus"
+
+# Network details
+vnetName="my-vnet"
+subnetName="my-subnet"
+
+# Private endpoint name
+privateEndpointName="myStoragePrivateEndpoint"
+
+# Private DNS zone info
+dnsZoneName="privatelink.blob.core.windows.net"
+dnsZoneResourceGroup="my-resource-group"
+
+****get submnetid
+subnetId=$(az network vnet subnet show \
+  --resource-group $resourceGroup \
+  --vnet-name $vnetName \
+  --name $subnetName \
+  --query id --output tsv)
+
+***get storage account id:
+storageAccountId=$(az storage account show \
+  --name $storageAccount \
+  --resource-group $resourceGroup \
+  --query id --output tsv)
+
+**create end point
+az network private-endpoint create \
+  --name $privateEndpointName \
+  --resource-group $resourceGroup \
+  --vnet-name $vnetName \
+  --subnet $subnetName \
+  --private-connection-resource-id $storageAccountId \
+  --group-id "blob" \
+  --connection-name "${privateEndpointName}Conn" \
+  --location $location
+
+
