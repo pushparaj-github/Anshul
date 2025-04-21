@@ -1,0 +1,46 @@
+*******ConvertToUnixPath.ps1:
+Add-Type -AssemblyName System.Windows.Forms
+
+# Get clipboard content
+$clipboardText = Get-Clipboard
+
+if (![string]::IsNullOrWhiteSpace($clipboardText)) {
+    # Convert to Unix-style path
+    $unixPath = $clipboardText -replace '\\', '/'
+    $unixPath = $unixPath -replace '^([A-Za-z]):', { "/$($matches[1].ToLower())" }
+
+    # Copy it back
+    Set-Clipboard -Value $unixPath
+
+    # Show toast notification
+    [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+    [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
+
+    $template = @"
+<toast>
+  <visual>
+    <binding template='ToastGeneric'>
+      <text>✅ Path Converted</text>
+      <text>$unixPath</text>
+    </binding>
+  </visual>
+</toast>
+"@
+
+    $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
+    $xml.LoadXml($template)
+
+    $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
+    $notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("PathConverter")
+    $notifier.Show($toast)
+}
+
+
+
+************
+
+Create a shortcut with this target:
+powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File "C:\Path\To\ConvertToUnixPath.ps1"
+
+******
+
