@@ -30,32 +30,62 @@ function Show-Toast {
     $notifier.Show($toast)
 }
 
-# Get clipboard content
-$clipboardText = Get-Clipboard
+# Input can come from clipboard or drag-and-drop
+param([string]$inputPath)
 
-# Check if it's a valid file or directory path
-if ([System.IO.File]::Exists($clipboardText) -or [System.IO.Directory]::Exists($clipboardText)) {
-    # Convert to Unix path
-    $unixPath = $clipboardText
+if (-not $inputPath) {
+    $inputPath = Get-Clipboard
+}
 
-    if ($unixPath -match '^([A-Za-z]):') {
-        $driveLetter = $matches[1].ToLower()
-        $unixPath = "/$driveLetter" + $clipboardText.Substring(2)
+$convertedPath = $null
+
+function Convert-WindowsToUnix {
+    param ($path)
+    if ($path -match '^([A-Za-z]):\\') {
+        $drive = $matches[1].ToLower()
+        $rest = $path.Substring(2) -replace '\\', '/'
+        return "/mnt/$drive$rest"
+    }
+    return $null
+}
+
+function Convert-UnixToWindows {
+    param ($path)
+
+    if ($path -match '^/mnt/([a-z])(/.*)') {
+        $drive = $matches[1].ToUpper()
+        $rest = $matches[2] -replace '/', '\'
+        return "$drive:`$rest"
     }
 
-    $unixPath = $unixPath -replace '\\', '/'
+    if ($path -match '^/([a-z])(/.*)') {
+        $drive = $matches[1].ToUpper()
+        $rest = $matches[2] -replace '/', '\'
+        return "$drive:`$rest"
+    }
 
-    # Copy to clipboard
-    Set-Clipboard -Value $unixPath
+    return $null
+}
 
-    # Show success toast
-    Show-Toast -title "✅ Path Converted" -message "$unixPath"
+# Main logic
+if ([System.IO.File]::Exists($inputPath) -or [System.IO.Directory]::Exists($inputPath)) {
+    $convertedPath = Convert-WindowsToUnix -path $inputPath
+    Set-Clipboard -Value $convertedPath
+    Show-Toast -title "✅ Converted to Unix Path" -message "$convertedPath"
+}
+elseif ($inputPath -match '^(/mnt/[a-z]/|/[a-z]/)') {
+    $convertedPath = Convert-UnixToWindows -path $inputPath
+    if ($convertedPath -and (Test-Path $convertedPath)) {
+        Set-Clipboard -Value $convertedPath
+        Show-Toast -title "✅ Converted to Windows Path" -message "$convertedPath"
+    }
+    else {
+        Show-Toast -title "⚠️ Path Doesn't Exist" -message "Converted path not found: $convertedPath"
+    }
 }
 else {
-    Show-Toast -title "⚠️ Invalid Path" -message "Clipboard does not contain a valid file or folder path."
+    Show-Toast -title "⚠️ Invalid Path" -message "Clipboard or dropped item is not a valid path."
 }
-
-
 
 ************
 
