@@ -1,18 +1,13 @@
 *******ConvertToUnixPath.ps1:
+
 Add-Type -AssemblyName System.Windows.Forms
 
-# Get clipboard content
-$clipboardText = Get-Clipboard
+function Show-Toast {
+    param (
+        [string]$title,
+        [string]$message
+    )
 
-if (![string]::IsNullOrWhiteSpace($clipboardText)) {
-    # Convert to Unix-style path
-    $unixPath = $clipboardText -replace '\\', '/'
-    $unixPath = $unixPath -replace '^([A-Za-z]):', { "/$($matches[1].ToLower())" }
-
-    # Copy it back
-    Set-Clipboard -Value $unixPath
-
-    # Show toast notification
     [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
     [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
 
@@ -20,8 +15,8 @@ if (![string]::IsNullOrWhiteSpace($clipboardText)) {
 <toast>
   <visual>
     <binding template='ToastGeneric'>
-      <text>✅ Path Converted</text>
-      <text>$unixPath</text>
+      <text>$title</text>
+      <text>$message</text>
     </binding>
   </visual>
 </toast>
@@ -33,6 +28,31 @@ if (![string]::IsNullOrWhiteSpace($clipboardText)) {
     $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
     $notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("PathConverter")
     $notifier.Show($toast)
+}
+
+# Get clipboard content
+$clipboardText = Get-Clipboard
+
+# Check if it's a valid file or directory path
+if ([System.IO.File]::Exists($clipboardText) -or [System.IO.Directory]::Exists($clipboardText)) {
+    # Convert to Unix path
+    $unixPath = $clipboardText
+
+    if ($unixPath -match '^([A-Za-z]):') {
+        $driveLetter = $matches[1].ToLower()
+        $unixPath = "/$driveLetter" + $clipboardText.Substring(2)
+    }
+
+    $unixPath = $unixPath -replace '\\', '/'
+
+    # Copy to clipboard
+    Set-Clipboard -Value $unixPath
+
+    # Show success toast
+    Show-Toast -title "✅ Path Converted" -message "$unixPath"
+}
+else {
+    Show-Toast -title "⚠️ Invalid Path" -message "Clipboard does not contain a valid file or folder path."
 }
 
 
