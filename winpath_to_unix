@@ -41,6 +41,7 @@ $convertedPath = $null
 
 function Convert-WindowsToUnix {
     param ($path)
+    $path = $path.Trim()
     if ($path -match '^([A-Za-z]):\\') {
         $drive = $matches[1].ToLower()
         $rest = $path.Substring(2) -replace '\\', '/'
@@ -51,6 +52,7 @@ function Convert-WindowsToUnix {
 
 function Convert-UnixToWindows {
     param ($path)
+    $path = $path.Trim()
 
     if ($path -match '^/mnt/([a-z])(/.*)') {
         $drive = $matches[1].ToUpper()
@@ -67,24 +69,21 @@ function Convert-UnixToWindows {
     return $null
 }
 
-# Main logic
-if ([System.IO.File]::Exists($inputPath) -or [System.IO.Directory]::Exists($inputPath)) {
+# Detect type and convert accordingly
+if ($inputPath -match '^([A-Za-z]):\\') {
+    # Clearly Windows style path
     $convertedPath = Convert-WindowsToUnix -path $inputPath
     Set-Clipboard -Value $convertedPath
-    Show-Toast -title "✅ Converted to Unix Path" -message "$convertedPath"
+    Show-Toast -title "✅ Windows → Unix Path" -message "$convertedPath"
 }
-elseif ($inputPath -match '^(/mnt/[a-z]/|/[a-z]/)') {
+elseif ($inputPath -match '^/mnt/[a-z]/' -or $inputPath -match '^/[a-z]/') {
+    # Clearly Unix-style path
     $convertedPath = Convert-UnixToWindows -path $inputPath
-    if ($convertedPath -and (Test-Path $convertedPath)) {
-        Set-Clipboard -Value $convertedPath
-        Show-Toast -title "✅ Converted to Windows Path" -message "$convertedPath"
-    }
-    else {
-        Show-Toast -title "⚠️ Path Doesn't Exist" -message "Converted path not found: $convertedPath"
-    }
+    Set-Clipboard -Value $convertedPath
+    Show-Toast -title "✅ Unix → Windows Path" -message "$convertedPath"
 }
 else {
-    Show-Toast -title "⚠️ Invalid Path" -message "Clipboard or dropped item is not a valid path."
+    Show-Toast -title "⚠️ Invalid Path" -message "Input is not a valid Windows or Unix path."
 }
 
 ************
