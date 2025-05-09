@@ -18,13 +18,12 @@ $tokenResponse = Invoke-RestMethod -Method Post -Uri "https://login.microsoftonl
 $accessToken = $tokenResponse.access_token
 $headers = @{ Authorization = "Bearer $accessToken" }
 
-# Helper function to delete resources of a type
+# Helper to delete ADF resources
 function Delete-ADFResources {
     param (
         [string]$resourceType,
         [string]$apiVersion = "2018-06-01"
     )
-
     $baseUri = "https://management.azure.com/subscriptions/$subscriptionId/resourceGroups/$resourceGroupName/providers/Microsoft.DataFactory/factories/$dataFactoryName/$resourceType?api-version=$apiVersion"
     
     try {
@@ -40,8 +39,7 @@ function Delete-ADFResources {
     }
 }
 
-# ===== DELETE IN SAFE ORDER =====
-# 1. Triggers (stop & delete)
+# Delete Triggers (stop first)
 function Stop-And-Delete-Triggers {
     $triggerUri = "https://management.azure.com/subscriptions/$subscriptionId/resourceGroups/$resourceGroupName/providers/Microsoft.DataFactory/factories/$dataFactoryName/triggers?api-version=2018-06-01"
     $triggers = Invoke-RestMethod -Method Get -Uri $triggerUri -Headers $headers
@@ -55,10 +53,28 @@ function Stop-And-Delete-Triggers {
     }
 }
 
-# Run all deletions
+# 🔐 Delete ADF Credentials
+function Delete-Credentials {
+    $credUri = "https://management.azure.com/subscriptions/$subscriptionId/resourceGroups/$resourceGroupName/providers/Microsoft.DataFactory/factories/$dataFactoryName/credentials?api-version=2021-06-01-preview"
+    
+    try {
+        $credentials = Invoke-RestMethod -Method Get -Uri $credUri -Headers $headers
+        foreach ($cred in $credentials.value) {
+            $name = $cred.name
+            $delUri = "https://management.azure.com$($cred.id)?api-version=2021-06-01-preview"
+            Invoke-RestMethod -Method Delete -Uri $delUri -Headers $headers
+            Write-Host "Deleted credential: $name"
+        }
+    } catch {
+        Write-Warning "Failed to delete credentials - $_"
+    }
+}
+
+# ===== RUN IN ORDER =====
 Stop-And-Delete-Triggers
 Delete-ADFResources -resourceType "pipelines"
 Delete-ADFResources -resourceType "datasets"
 Delete-ADFResources -resourceType "linkedservices"
+Delete-Credentials
 
-Write-Host "✅ All Data Factory resources deleted."
+Write-Host "✅ All Data Factory resources and credentials deleted."
