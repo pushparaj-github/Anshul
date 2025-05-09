@@ -1,0 +1,44 @@
+# Parameters
+$tenantId = "<your-tenant-id>"
+$appId = "<your-app-id>"            # This is the Client ID of the service principal
+$secret = "<your-client-secret>"    # The Client Secret of the service principal
+$resourceGroupName = "<your-resource-group-name>"
+$dataFactoryName = "<your-data-factory-name>"
+
+# Login using the service principal
+$securePassword = ConvertTo-SecureString -String $secret -AsPlainText -Force
+$credential = New-Object System.Management.Automation.PSCredential ($appId, $securePassword)
+Connect-AzAccount -ServicePrincipal -Credential $credential -TenantId $tenantId
+
+# ---- DELETE IN ORDER ----
+
+# 1. Disable and delete triggers
+$triggers = Get-AzDataFactoryV2Trigger -ResourceGroupName $resourceGroupName -DataFactoryName $dataFactoryName
+foreach ($trigger in $triggers) {
+    Stop-AzDataFactoryV2Trigger -ResourceGroupName $resourceGroupName -DataFactoryName $dataFactoryName -Name $trigger.Name -Force -ErrorAction SilentlyContinue
+    Remove-AzDataFactoryV2Trigger -ResourceGroupName $resourceGroupName -DataFactoryName $dataFactoryName -Name $trigger.Name -Force
+    Write-Host "Deleted trigger: $($trigger.Name)"
+}
+
+# 2. Delete pipelines
+$pipelines = Get-AzDataFactoryV2Pipeline -ResourceGroupName $resourceGroupName -DataFactoryName $dataFactoryName
+foreach ($pipeline in $pipelines) {
+    Remove-AzDataFactoryV2Pipeline -ResourceGroupName $resourceGroupName -DataFactoryName $dataFactoryName -Name $pipeline.Name -Force
+    Write-Host "Deleted pipeline: $($pipeline.Name)"
+}
+
+# 3. Delete datasets
+$datasets = Get-AzDataFactoryV2Dataset -ResourceGroupName $resourceGroupName -DataFactoryName $dataFactoryName
+foreach ($dataset in $datasets) {
+    Remove-AzDataFactoryV2Dataset -ResourceGroupName $resourceGroupName -DataFactoryName $dataFactoryName -Name $dataset.Name -Force
+    Write-Host "Deleted dataset: $($dataset.Name)"
+}
+
+# 4. Delete linked services
+$linkedServices = Get-AzDataFactoryV2LinkedService -ResourceGroupName $resourceGroupName -DataFactoryName $dataFactoryName
+foreach ($linkedService in $linkedServices) {
+    Remove-AzDataFactoryV2LinkedService -ResourceGroupName $resourceGroupName -DataFactoryName $dataFactoryName -Name $linkedService.Name -Force
+    Write-Host "Deleted linked service: $($linkedService.Name)"
+}
+
+Write-Host "✅ All ADF resources deleted in dependency-safe order."
