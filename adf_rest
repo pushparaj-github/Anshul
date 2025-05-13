@@ -1,12 +1,11 @@
-]# ------------------------ VARIABLES ------------------------
+# ------------------------ VARIABLES ------------------------
 $subscriptionId = "<your-subscription-id>"
 $resourceGroup = "<your-resource-group-name>"
 $dataFactoryName = "<your-adf-name>"
-$apiVersion = "2018-06-01"
 
-# Get Bearer Token using Azure CLI (Service Principal)
 $token = (az account get-access-token --query accessToken -o tsv)
 $headers = @{ Authorization = "Bearer $token" }
+$apiVersion = "2018-06-01"
 
 $baseUri = "https://management.azure.com/subscriptions/$subscriptionId/resourceGroups/$resourceGroup/providers/Microsoft.DataFactory/factories/$dataFactoryName"
 
@@ -46,24 +45,35 @@ function TopoSort($depMap) {
 
 # ------------------------ STEP 1: DISABLE AND DELETE TRIGGERS ------------------------
 Write-Output "`n--- Disabling and Deleting Triggers ---"
-$triggers = (Invoke-RestMethod -Uri "$baseUri/triggers?api-version=$apiVersion" -Headers $headers).value
+$uri = "$baseUri/triggers?api-version=$apiVersion"
+Write-Host "GET $uri"
+$triggers = (Invoke-RestMethod -Uri $uri -Headers $headers).value
+
 foreach ($trigger in $triggers) {
     $name = $trigger.name
-    Write-Output "Stopping trigger: $name"
-    Invoke-RestMethod -Method Post -Uri "$baseUri/triggers/$name/stop?api-version=$apiVersion" -Headers $headers -ErrorAction SilentlyContinue
+
+    $stopUri = "$baseUri/triggers/$name/stop?api-version=$apiVersion"
+    Write-Host "POST $stopUri"
+    Invoke-RestMethod -Method Post -Uri $stopUri -Headers $headers -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 2
-    Write-Output "Deleting trigger: $name"
-    Invoke-RestMethod -Method Delete -Uri "$baseUri/triggers/$name?api-version=$apiVersion" -Headers $headers
+
+    $delUri = "$baseUri/triggers/$name?api-version=$apiVersion"
+    Write-Host "DELETE $delUri"
+    Invoke-RestMethod -Method Delete -Uri $delUri -Headers $headers
 }
 
-# ------------------------ STEP 2: DELETE PIPELINES (DEPENDENCY ORDER) ------------------------
+# ------------------------ STEP 2: DELETE PIPELINES ------------------------
 Write-Output "`n--- Analyzing and Deleting Pipelines ---"
-$pipelines = (Invoke-RestMethod -Uri "$baseUri/pipelines?api-version=$apiVersion" -Headers $headers).value
+$uri = "$baseUri/pipelines?api-version=$apiVersion"
+Write-Host "GET $uri"
+$pipelines = (Invoke-RestMethod -Uri $uri -Headers $headers).value
 $pipelineDeps = @{}
 
 foreach ($pipeline in $pipelines) {
     $name = $pipeline.name
-    $details = Invoke-RestMethod -Uri "$baseUri/pipelines/$name?api-version=$apiVersion" -Headers $headers
+    $detailUri = "$baseUri/pipelines/$name?api-version=$apiVersion"
+    Write-Host "GET $detailUri"
+    $details = Invoke-RestMethod -Uri $detailUri -Headers $headers
     $dependencies = @()
 
     foreach ($activity in $details.properties.activities) {
@@ -82,44 +92,56 @@ foreach ($pipeline in $pipelines) {
 
 $sortedPipelines = TopoSort $pipelineDeps
 foreach ($name in ($sortedPipelines | Reverse)) {
-    Write-Output "Deleting pipeline: $name"
-    Invoke-RestMethod -Method Delete -Uri "$baseUri/pipelines/$name?api-version=$apiVersion" -Headers $headers
+    $delUri = "$baseUri/pipelines/$name?api-version=$apiVersion"
+    Write-Host "DELETE $delUri"
+    Invoke-RestMethod -Method Delete -Uri $delUri -Headers $headers
 }
 
 # ------------------------ STEP 3: DELETE DATASETS ------------------------
 Write-Output "`n--- Analyzing and Deleting Datasets ---"
-$datasets = (Invoke-RestMethod -Uri "$baseUri/datasets?api-version=$apiVersion" -Headers $headers).value
+$uri = "$baseUri/datasets?api-version=$apiVersion"
+Write-Host "GET $uri"
+$datasets = (Invoke-RestMethod -Uri $uri -Headers $headers).value
 $datasetDeps = @{}
 
 foreach ($dataset in $datasets) {
     $name = $dataset.name
-    $details = Invoke-RestMethod -Uri "$baseUri/datasets/$name?api-version=$apiVersion" -Headers $headers
+    $detailUri = "$baseUri/datasets/$name?api-version=$apiVersion"
+    Write-Host "GET $detailUri"
+    $details = Invoke-RestMethod -Uri $detailUri -Headers $headers
     $linked = $details.properties.linkedServiceName.referenceName
     $datasetDeps[$name] = @($linked)
 }
 
 $sortedDatasets = TopoSort $datasetDeps
 foreach ($name in ($sortedDatasets | Reverse)) {
-    Write-Output "Deleting dataset: $name"
-    Invoke-RestMethod -Method Delete -Uri "$baseUri/datasets/$name?api-version=$apiVersion" -Headers $headers
+    $delUri = "$baseUri/datasets/$name?api-version=$apiVersion"
+    Write-Host "DELETE $delUri"
+    Invoke-RestMethod -Method Delete -Uri $delUri -Headers $headers
 }
 
-# ------------------------ STEP 4: DELETE DATA FLOWS (IF ANY) ------------------------
+# ------------------------ STEP 4: DELETE DATA FLOWS ------------------------
 Write-Output "`n--- Deleting Data Flows (if any) ---"
-$dataflows = (Invoke-RestMethod -Uri "$baseUri/dataflows?api-version=$apiVersion" -Headers $headers -ErrorAction SilentlyContinue).value
+$uri = "$baseUri/dataflows?api-version=$apiVersion"
+Write-Host "GET $uri"
+$dataflows = (Invoke-RestMethod -Uri $uri -Headers $headers -ErrorAction SilentlyContinue).value
 foreach ($df in $dataflows) {
     $name = $df.name
-    Write-Output "Deleting dataflow: $name"
-    Invoke-RestMethod -Method Delete -Uri "$baseUri/dataflows/$name?api-version=$apiVersion" -Headers $headers
+    $delUri = "$baseUri/dataflows/$name?api-version=$apiVersion"
+    Write-Host "DELETE $delUri"
+    Invoke-RestMethod -Method Delete -Uri $delUri -Headers $headers
 }
 
 # ------------------------ STEP 5: DELETE LINKED SERVICES ------------------------
 Write-Output "`n--- Deleting Linked Services ---"
-$linkedServices = (Invoke-RestMethod -Uri "$baseUri/linkedservices?api-version=$apiVersion" -Headers $headers).value
+$uri = "$baseUri/linkedservices?api-version=$apiVersion"
+Write-Host "GET $uri"
+$linkedServices = (Invoke-RestMethod -Uri $uri -Headers $headers).value
 foreach ($ls in $linkedServices) {
     $name = $ls.name
-    Write-Output "Deleting linked service: $name"
-    Invoke-RestMethod -Method Delete -Uri "$baseUri/linkedservices/$name?api-version=$apiVersion" -Headers $headers
+    $delUri = "$baseUri/linkedservices/$name?api-version=$apiVersion"
+    Write-Host "DELETE $delUri"
+    Invoke-RestMethod -Method Delete -Uri $delUri -Headers $headers
 }
 
 Write-Output "`n✅ All ADF resources (except IR) deleted successfully."
