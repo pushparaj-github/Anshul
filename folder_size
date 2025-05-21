@@ -19,19 +19,28 @@ if (-Not (Test-Path -Path $Path -PathType Container)) {
     exit
 }
 
-Write-Host "`n=== FOLDER SIZES ===`n"
+Write-Host "`nCalculating folder sizes under: $Path`n"
 
-# Include the root folder as well
 $allFolders = @((Get-Item -Path $Path), (Get-ChildItem -Path $Path -Recurse -Directory))
+$total = $allFolders.Count
+$index = 1
 
-$folderSizes = $allFolders | ForEach-Object {
-    $folderPath = $_.FullName
+$folderSizes = foreach ($folder in $allFolders) {
+    Write-Progress -Activity "Calculating Folder Sizes" `
+                   -Status "Processing folder $index of $total: $($folder.FullName)" `
+                   -PercentComplete (($index / $total) * 100)
+
+    $folderPath = $folder.FullName
     $size = (Get-ChildItem -Path $folderPath -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
+    $index++
+
     [PSCustomObject]@{
-        Folder = $_.Name
-        Path = $folderPath
-        'Total Size' = Get-ReadableSize($size)
+        Folder     = $folder.Name
+        Path       = $folderPath
+        'TotalSize' = Get-ReadableSize($size)
     }
 }
 
-$folderSizes | Sort-Object 'Total Size' -Descending | Format-Table -AutoSize
+Write-Progress -Activity "Calculating Folder Sizes" -Completed
+
+$folderSizes | Sort-Object 'TotalSize' -Descending | Format-Table -AutoSize
