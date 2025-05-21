@@ -19,24 +19,19 @@ if (-Not (Test-Path -Path $Path -PathType Container)) {
     exit
 }
 
-# Files info
-Write-Host "`n=== FILES ===`n"
-$files = Get-ChildItem -Path $Path -Recurse -File | Select-Object `
-    @{Name='Name'; Expression={$_.Name}},
-    @{Name='Path'; Expression={$_.FullName}},
-    @{Name='Size'; Expression={Get-ReadableSize($_.Length)}}
+Write-Host "`n=== FOLDER SIZES ===`n"
 
-$files | Format-Table -AutoSize
+# Include the root folder as well
+$allFolders = @((Get-Item -Path $Path), (Get-ChildItem -Path $Path -Recurse -Directory))
 
-# Folder sizes
-Write-Host "`n=== FOLDERS ===`n"
-$folders = Get-ChildItem -Path $Path -Recurse -Directory | ForEach-Object {
-    $totalSize = (Get-ChildItem -Path $_.FullName -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
+$folderSizes = $allFolders | ForEach-Object {
+    $folderPath = $_.FullName
+    $size = (Get-ChildItem -Path $folderPath -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
     [PSCustomObject]@{
-        Name = $_.Name
-        Path = $_.FullName
-        'Total Size' = Get-ReadableSize($totalSize)
+        Folder = $_.Name
+        Path = $folderPath
+        'Total Size' = Get-ReadableSize($size)
     }
 }
 
-$folders | Format-Table -AutoSize
+$folderSizes | Sort-Object 'Total Size' -Descending | Format-Table -AutoSize
