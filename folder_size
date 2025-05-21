@@ -1,0 +1,42 @@
+param (
+    [Parameter(Mandatory = $true)]
+    [string]$Path
+)
+
+function Get-ReadableSize($bytes) {
+    switch ($bytes) {
+        {$_ -ge 1PB} {"{0:N2} PB" -f ($bytes / 1PB); break}
+        {$_ -ge 1TB} {"{0:N2} TB" -f ($bytes / 1TB); break}
+        {$_ -ge 1GB} {"{0:N2} GB" -f ($bytes / 1GB); break}
+        {$_ -ge 1MB} {"{0:N2} MB" -f ($bytes / 1MB); break}
+        {$_ -ge 1KB} {"{0:N2} KB" -f ($bytes / 1KB); break}
+        default     {"$bytes Bytes"}
+    }
+}
+
+if (-Not (Test-Path -Path $Path -PathType Container)) {
+    Write-Error "The path '$Path' does not exist or is not a folder."
+    exit
+}
+
+# Files info
+Write-Host "`n=== FILES ===`n"
+$files = Get-ChildItem -Path $Path -Recurse -File | Select-Object `
+    @{Name='Name'; Expression={$_.Name}},
+    @{Name='Path'; Expression={$_.FullName}},
+    @{Name='Size'; Expression={Get-ReadableSize($_.Length)}}
+
+$files | Format-Table -AutoSize
+
+# Folder sizes
+Write-Host "`n=== FOLDERS ===`n"
+$folders = Get-ChildItem -Path $Path -Recurse -Directory | ForEach-Object {
+    $totalSize = (Get-ChildItem -Path $_.FullName -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
+    [PSCustomObject]@{
+        Name = $_.Name
+        Path = $_.FullName
+        'Total Size' = Get-ReadableSize($totalSize)
+    }
+}
+
+$folders | Format-Table -AutoSize
