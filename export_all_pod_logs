@@ -1,0 +1,19 @@
+#!/bin/bash
+
+NAMESPACE="default"  # Change to your desired namespace
+OUTPUT_DIR="./pod-logs"
+
+mkdir -p "$OUTPUT_DIR"
+
+# Get ALL pods (including from CronJobs), even completed ones
+pods=$(kubectl get pods -n "$NAMESPACE" --no-headers -o custom-columns=":metadata.name")
+
+for pod in $pods; do
+    # Get container names in the pod
+    containers=$(kubectl get pod "$pod" -n "$NAMESPACE" -o jsonpath="{.spec.containers[*].name}")
+    
+    for container in $containers; do
+        echo "Exporting logs for pod: $pod, container: $container"
+        kubectl logs "$pod" -c "$container" -n "$NAMESPACE" > "$OUTPUT_DIR/${pod}_${container}.log"
+    done
+done
