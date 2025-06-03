@@ -1,19 +1,34 @@
 #!/bin/bash
 
-NAMESPACE="default"  # Change to your desired namespace
-OUTPUT_DIR="./pod-logs"
+# Get current namespace (fallback to 'default')
+NAMESPACE=$(kubectl config view --minify --output 'jsonpath={..namespace}')
+NAMESPACE=${NAMESPACE:-default}
 
-mkdir -p "$OUTPUT_DIR"
+# Get today's date in DDMMYYYY format
+TODAY=$(date +%d%m%Y)
 
-# Get ALL pods (including from CronJobs), even completed ones
+# Base output folder
+BASE_DIR="./${NAMESPACE}_${TODAY}"
+mkdir -p "$BASE_DIR"
+
+# Get all pod names in current namespace
 pods=$(kubectl get pods -n "$NAMESPACE" --no-headers -o custom-columns=":metadata.name")
 
 for pod in $pods; do
-    # Get container names in the pod
-    containers=$(kubectl get pod "$pod" -n "$NAMESPACE" -o jsonpath="{.spec.containers[*].name}")
+    POD_DIR="${BASE_DIR}/${pod}"
+    mkdir -p "$POD_DIR"
     
+    # Get main container names
+    containers=$(kubectl get pod "$pod" -n "$NAMESPACE" -o jsonpath="{.spec.containers[*].name}")
     for container in $containers; do
         echo "Exporting logs for pod: $pod, container: $container"
-        kubectl logs "$pod" -c "$container" -n "$NAMESPACE" > "$OUTPUT_DIR/${pod}_${container}.log"
+        kubectl logs "$pod" -c "$container" -n "$NAMESPACE" > "${POD_DIR}/${container}.log"
+    done
+
+    # Get init container names
+    init_containers=$(kubectl get pod "$pod" -n "$NAMESPACE" -o jsonpath="{.spec.initContainers[*].name}")
+    for init_container in $init_containers; do
+        echo "Exporting logs for pod: $pod, init container: $init_container"
+        kubectl logs "$pod" -c "$init_container" -n "$NAMESPACE" > "${POD_DIR}/${init_container}_init.log"
     done
 done
