@@ -21,6 +21,10 @@ for pod in $pods; do
     # Get main container names
     containers=$(kubectl get pod "$pod" -n "$NAMESPACE" -o jsonpath="{.spec.containers[*].name}")
     for container in $containers; do
+        if [[ "$container" == "envoy" ]]; then
+            echo "Skipping envoy container in pod: $pod"
+            continue
+        fi
         echo "Exporting logs for pod: $pod, container: $container"
         kubectl logs "$pod" -c "$container" -n "$NAMESPACE" > "${POD_DIR}/${container}.log"
     done
@@ -28,6 +32,10 @@ for pod in $pods; do
     # Get init container names
     init_containers=$(kubectl get pod "$pod" -n "$NAMESPACE" -o jsonpath="{.spec.initContainers[*].name}")
     for init_container in $init_containers; do
+        if [[ "$init_container" == "envoy" ]]; then
+            echo "Skipping envoy init container in pod: $pod"
+            continue
+        fi
         echo "Exporting logs for pod: $pod, init container: $init_container"
         kubectl logs "$pod" -c "$init_container" -n "$NAMESPACE" > "${POD_DIR}/${init_container}_init.log"
     done
