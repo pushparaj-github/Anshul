@@ -1,0 +1,77 @@
+# Start from Ubuntu 22.04
+FROM ubuntu:22.04
+
+# Noninteractive install mode
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Update and install dependencies
+RUN apt-get update && apt-get install -y \
+    wget \
+    unzip \
+    curl \
+    gnupg \
+    software-properties-common \
+    git \
+    build-essential \
+    ca-certificates \
+    libnss3 \
+    libatk-bridge2.0-0 \
+    libxss1 \
+    libasound2 \
+    libxshmfence-dev \
+    libgtk-3-0 \
+    xvfb \
+    fonts-liberation \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- Install Java 17 (LTS) ---
+RUN apt-get update && \
+    apt-get install -y openjdk-17-jdk && \
+    java -version
+
+# --- Install Gradle 8.7 ---
+ENV GRADLE_VERSION=8.7
+RUN wget https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip && \
+    unzip gradle-${GRADLE_VERSION}-bin.zip -d /opt && \
+    ln -s /opt/gradle-${GRADLE_VERSION}/bin/gradle /usr/bin/gradle && \
+    gradle -v && \
+    rm gradle-${GRADLE_VERSION}-bin.zip
+
+# --- Install Node.js 18 LTS ---
+RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
+    apt-get install -y nodejs && \
+    node -v && npm -v
+
+# --- Install Playwright and browsers ---
+RUN npm install -g playwright && \
+    npx playwright install --with-deps
+
+# --- Create a non-root user (optional but safer for CI) ---
+RUN useradd -ms /bin/bash tester
+USER tester
+WORKDIR /home/tester/app
+
+# --- Expose Gradle cache and Playwright dependencies as volumes (optional) ---
+VOLUME ["/home/tester/.gradle", "/home/tester/.cache/ms-playwright"]
+
+# --- Default command (can be overridden in GitLab CI) ---
+CMD ["gradle", "test"]
+
+
+
+===========
+stages:
+  - test
+
+ui-tests:
+  stage: test
+  image: registry.gitlab.com/<your-project>/playwright-gradle:latest
+  script:
+    - gradle clean test
+  artifacts:
+    when: always
+    reports:
+      junit: build/test-results/test/TEST-*.xml
+    paths:
+      - build/reports/tests
+      - build/test-results/test
