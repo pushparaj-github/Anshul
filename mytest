@@ -75,3 +75,92 @@ ui-tests:
     paths:
       - build/reports/tests
       - build/test-results/test
+
+
+
+
+===============
+
+# Base image with Gradle and JDK from your internal registry
+FROM container-registry.mycomp.net/gradle:jdk17-2022-12-09T08-21-25.874827533Z
+
+# -------------------------------
+# STEP 1: Install CA Certs and Configure Truststore
+# -------------------------------
+RUN dpkg --purge --force-depends ca-certificates-java && \
+    apt-get update && apt-get install -y ca-certificates-java
+
+ENV GRADLE_OPTS='-Djavax.net.ssl.trustStore=/etc/ssl/certs/java/cacerts -Djavax.net.ssl.trustStorePassword=changeit'
+
+COPY certs/ca-update.sh /
+RUN chmod +x /ca-update.sh && /ca-update.sh
+
+# -------------------------------
+# STEP 2: Install Browser Dependencies
+# -------------------------------
+RUN apt-get update && apt-get install -y \
+    wget \
+    curl \
+    unzip \
+    gnupg \
+    software-properties-common \
+    build-essential \
+    ca-certificates \
+    libx11-xcb1 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libcups2 \
+    libdrm2 \
+    libxkbcommon0 \
+    libasound2 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxrandr2 \
+    libgbm1 \
+    libgtk-3-0 \
+    libnss3 \
+    libxss1 \
+    libxtst6 \
+    libxshmfence-dev \
+    xvfb \
+    fonts-liberation \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# -------------------------------
+# STEP 3: Install Node.js from Nexus (v18.20.7)
+# -------------------------------
+ARG NODE_VERSION=v18.20.7
+RUN curl -k https://nexus-tp-repo.com/repository/public-runtime-nodejs/${NODE_VERSION}/node-${NODE_VERSION}-linux-x64.tar.gz -o node-${NODE_VERSION}-linux-x64.tar.gz && \
+    tar -xzf node-${NODE_VERSION}-linux-x64.tar.gz && \
+    mv node-${NODE_VERSION}-linux-x64 /usr/local/node && \
+    ln -s /usr/local/node/bin/node /usr/local/bin/node && \
+    ln -s /usr/local/node/bin/npm /usr/local/bin/npm && \
+    rm -f node-${NODE_VERSION}-linux-x64.tar.gz
+
+ENV PATH="/usr/local/node/bin:$PATH"
+
+RUN node -v && npm -v
+
+# -------------------------------
+# STEP 4: Install Playwright
+# -------------------------------
+ENV PLAYWRIGHT_VERSION=1.50.0
+
+RUN npm config set registry https://nexus-tp-repo.com/repository/public-npm/ && \
+    npm install -g playwright@${PLAYWRIGHT_VERSION} && \
+    npm config set cafile /etc/ssl/certs/ca-certificates.crt && \
+    npx playwright install --with-deps
+
+# -------------------------------
+# STEP 5: Copy Test Suite and Set Entrypoint
+# -------------------------------
+ARG APP_PATH=ui-regression-test-suite
+ARG HOMEDIR=/opt/tests
+
+COPY ./${APP_PATH} ${HOMEDIR}/${APP_PATH}
+RUN chmod -R 770 ${HOMEDIR}/${APP_PATH}
+
+WORKDIR ${HOMEDIR}/${APP_PATH}
+
+# Run UI tests with XVFB
+CMD ["xvfb-run", "--auto-servernum", "mvn", "test"]
