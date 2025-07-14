@@ -42,3 +42,112 @@ foreach ($linkedService in $linkedServices) {
 }
 
 Write-Host "✅ All ADF resources deleted in dependency-safe order."
+===================
+
+
+resource "azurerm_monitor_scheduled_query_rules_alert" "adf_failure_alert" {
+  name                = "adf-failure-alert"
+  resource_group_name = var.resource_group_name
+  location            = var.location
+  description         = "Alert for any pipeline, activity, or trigger failure in ADF"
+  enabled             = true
+  severity            = 2
+  frequency           = 5  # Query every 5 minutes
+  time_window         = 15 # Look back 15 minutes
+  scopes              = [azurerm_log_analytics_workspace.example.id] # Replace with your Log Analytics Workspace ID
+  action {
+    action_group = [azurerm_monitor_action_group.example.id] # Replace with your action group
+  }
+
+  criteria {
+    metric_trigger {
+      operator  = "GreaterThan"
+      threshold = 0
+    }
+
+    query = <<-QUERY
+let FailedPipelines = ADFPipelineRun
+| where Status == "Failed"
+| project TimeGenerated, FailureType = "Pipeline", PipelineName, RunId, ErrorMessage = tostring(Error.message), ErrorCode = tostring(Error.code), Start = Start, End = End, AdditionalInfo = strcat("Pipeline Parameters: ", tostring(Parameters));
+let FailedActivities = ADFActivityRun
+| where Status == "Failed"
+| summarize arg_max(TimeGenerated, *) by PipelineRunId, ActivityName
+| project TimeGenerated, FailureType = "Activity", PipelineName, ActivityName, RunId = PipelineRunId, ErrorMessage = tostring(Error.message), ErrorCode = tostring(Error.code), Start = Start, End = End, AdditionalInfo = strcat("Activity Type: ", ActivityType, "; Inputs: ", tostring(Input));
+let FailedTriggers = ADFTriggerRun
+| where Status == "Failed"
+| project TimeGenerated, FailureType = "Trigger", PipelineName, ActivityName = TriggerName, RunId = TriggerRunId, ErrorMessage = tostring(Error.message), ErrorCode = tostring(Error.code), Start = Start, End = End, AdditionalInfo = strcat("Trigger Type: ", TriggerType, "; Inputs: ", tostring(Inputs));
+union FailedPipelines, FailedActivities, FailedTriggers
+| summarize arg_max(TimeGenerated, *) by RunId, FailureType
+| sort by TimeGenerated desc
+QUERY
+
+    resource_id_column = "RunId"
+    time_aggregation   = "Count"
+    operator           = "GreaterThan"
+    threshold          = 0
+  }
+
+  trigger {
+    operator  = "GreaterThan"
+    threshold = 0
+  }
+
+  tags = {
+    environment = "production"
+  }
+}
+
+
+==================
+Azure squery
+------------------
+// Step 1: Failed Pipeline Runs (excluding ones already covered by Activity failures)
+let FailedPipelines = ADFPipelineRun
+| where Status == "Failed"
+| project 
+    TimeGenerated,
+    FailureType = "Pipeline",
+    PipelineName,
+    RunId,
+    ErrorMessage = tostring(Error.message),
+    ErrorCode = tostring(Error.code),
+    Start = Start,
+    End = End,
+    AdditionalInfo = strcat("Pipeline Parameters: ", tostring(Parameters));
+    
+// Step 2: Failed Activities (inside pipelines)
+let FailedActivities = ADFActivityRun
+| where Status == "Failed"
+| summarize arg_max(TimeGenerated, *) by PipelineRunId, ActivityName
+| project 
+    TimeGenerated,
+    FailureType = "Activity",
+    PipelineName,
+    ActivityName,
+    RunId = PipelineRunId,
+    ErrorMessage = tostring(Error.message),
+    ErrorCode = tostring(Error.code),
+    Start = Start,
+    End = End,
+    AdditionalInfo = strcat("Activity Type: ", ActivityType, "; Inputs: ", tostring(Input));
+    
+// Step 3: Failed Triggers
+let FailedTriggers = ADFTriggerRun
+| where Status == "Failed"
+| project 
+    TimeGenerated,
+    FailureType = "Trigger",
+    PipelineName,
+    ActivityName = TriggerName,
+    RunId = TriggerRunId,
+    ErrorMessage = tostring(Error.message),
+    ErrorCode = tostring(Error.code),
+    Start = Start,
+    End = End,
+    AdditionalInfo = strcat("Trigger Type: ", TriggerType, "; Inputs: ", tostring(Inputs));
+
+// Step 4: Union all and remove duplicates
+union FailedPipelines, FailedActivities, FailedTriggers
+| summarize arg_max(TimeGenerated, *) by RunId, FailureType
+| sort by TimeGenerated desc
+
