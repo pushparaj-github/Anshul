@@ -3,40 +3,67 @@
 NAMESPACE="your-namespace"
 LOCAL_DIR="./downloaded_appsettings"
 
+echo "=== Starting pod file collection for namespace: $NAMESPACE ==="
 mkdir -p "$LOCAL_DIR"
 
-# Get one pod per service by using labels
-for svc in $(kubectl get svc -n "$NAMESPACE" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}'); do
-    # Get the selector labels for the service
-    selector=$(kubectl get svc "$svc" -n "$NAMESPACE" -o jsonpath='{.spec.selector}' | jq -r 'to_entries | map("\(.key)=\(.value)") | join(",")')
-    
-    if [ -z "$selector" ]; then
-        echo "Skipping service $svc (no selector found)"
+# Get all services in the namespace
+kubectl get svc -n "$NAMESPACE" --no-headers -o custom-columns=":metadata.name" | while read -r svc; do
+    echo ""
+    echo "---------------------------------------------"
+    echo "[INFO] Processing service: $svc"
+
+    # Get selector for the service
+    selector=$(kubectl get svc "$svc" -n "$NAMESPACE" -o jsonpath='{.spec.selector}')
+    if [[ -z "$selector" ]]; then
+        echo "[WARN] Skipping service '$svc' (no selector found)"
         continue
     fi
 
-    # Get one pod matching the service selector
-    pod=$(kubectl get pods -n "$NAMESPACE" -l "$selector" -o jsonpath='{.items[0].metadata.name}')
-    
-    if [ -z "$pod" ]; then
-        echo "No pods found for service $svc"
+    # Convert JSON-like selector to comma-separated key=value format
+    label_selector=$(echo "$selector" | sed 's/[{}]//g' | sed 's/:/=/g' | sed 's/, /,/g')
+    if [[ -z "$label_selector" ]]; then
+        echo "[WARN] Service '$svc' has invalid selector format, skipping..."
         continue
     fi
 
-    echo "Checking pod: $pod for service: $svc"
+    echo "[DEBUG] Using label selector: $label_selector"
 
-    # Find appsettings.* files in the pod
-    files=$(kubectl exec -n "$NAMESPACE" "$pod" -- sh -c "ls / | grep '^appsettings\.' || true")
-    
-    if [ -z "$files" ]; then
-        echo "No appsettings.* files in $pod"
+    # Get the first pod matching the selector
+    pod=$(kubectl get pods -n "$NAMESPACE" -l "$label_selector" --no-headers -o custom-columns=":metadata.name" | head -n 1)
+    if [[ -z "$pod" ]]; then
+        echo "[WARN] No pods found for service '$svc'"
         continue
     fi
+
+    echo "[INFO] Selected pod: $pod"
+
+    # Check for appsettings.* files
+    echo "[INFO] Checking for appsettings.* files in pod..."
+    files=$(kubectl exec -n "$NAMESPACE" "$pod" -- sh -c "ls / | grep '^appsettings\\.' || true")
+    
+    if [[ -z "$files" ]]; then
+        echo "[INFO] No appsettings.* files found in pod: $pod"
+        continue
+    fi
+
+    echo "[INFO] Found files:"
+    echo "$files" | while read -r f; do
+        echo "       - $f"
+    done
 
     # Copy each file to local with service_name prefix
     for f in $files; do
         dest_file="$LOCAL_DIR/${svc}_$f"
+        echo "[ACTION] Copying '$f' from pod '$pod' to '$dest_file'..."
         kubectl cp "$NAMESPACE/$pod:/$f" "$dest_file"
-        echo "Copied $f from $pod to $dest_file"
+        if [[ $? -eq 0 ]]; then
+            echo "[SUCCESS] File copied: $dest_file"
+        else
+            echo "[ERROR] Failed to copy: $f"
+        fi
     done
 done
+
+echo ""
+echo "=== Completed pod file collection ==="
+echo "Files saved in: $LOCAL_DIR"
