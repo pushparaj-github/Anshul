@@ -1,0 +1,42 @@
+#!/bin/bash
+
+NAMESPACE="your-namespace"
+LOCAL_DIR="./downloaded_appsettings"
+
+mkdir -p "$LOCAL_DIR"
+
+# Get one pod per service by using labels
+for svc in $(kubectl get svc -n "$NAMESPACE" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}'); do
+    # Get the selector labels for the service
+    selector=$(kubectl get svc "$svc" -n "$NAMESPACE" -o jsonpath='{.spec.selector}' | jq -r 'to_entries | map("\(.key)=\(.value)") | join(",")')
+    
+    if [ -z "$selector" ]; then
+        echo "Skipping service $svc (no selector found)"
+        continue
+    fi
+
+    # Get one pod matching the service selector
+    pod=$(kubectl get pods -n "$NAMESPACE" -l "$selector" -o jsonpath='{.items[0].metadata.name}')
+    
+    if [ -z "$pod" ]; then
+        echo "No pods found for service $svc"
+        continue
+    fi
+
+    echo "Checking pod: $pod for service: $svc"
+
+    # Find appsettings.* files in the pod
+    files=$(kubectl exec -n "$NAMESPACE" "$pod" -- sh -c "ls / | grep '^appsettings\.' || true")
+    
+    if [ -z "$files" ]; then
+        echo "No appsettings.* files in $pod"
+        continue
+    fi
+
+    # Copy each file to local with service_name prefix
+    for f in $files; do
+        dest_file="$LOCAL_DIR/${svc}_$f"
+        kubectl cp "$NAMESPACE/$pod:/$f" "$dest_file"
+        echo "Copied $f from $pod to $dest_file"
+    done
+done
